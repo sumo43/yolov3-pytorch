@@ -198,6 +198,14 @@ class YOLOV3(nn.Module):
         x = self.conv34(x)
 
         yolo_output_3 = x
+        
+        #yolo_output_1 [0, (1, 3)
+        
+                       
+        #grid = torch.meshgrid([torch.arange(10), torch.arange(10)],             indexing='ij')
+        #grid = torch.stack((10, 10), 2).view(1, 1, 10, 10, 2)
+        
+        
 
         return yolo_output_1, yolo_output_2, yolo_output_3
 
