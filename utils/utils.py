@@ -94,11 +94,11 @@ def xywh2xyxy(arr: torch.Tensor) -> torch.Tensor:
 
     return torch.Tensor((x0, y0, x1, y1))
 
+
 def inverse_sigmoid(x: torch.Tensor) -> torch.Tensor:
     return torch.log(x / (1 - x))
 
 # get the cell that the bounding box is in, and its offsets
-
 
 def get_cell_offsets(label: torch.Tensor) -> tuple:
 
@@ -118,3 +118,100 @@ def get_best_prior(label: torch.Tensor) -> torch.Tensor:
         pass
 
     return NotImplemented
+
+
+def _readline(f):
+    line = f.readline()
+    if not line:
+        return None
+    line = line.replace('\n', '')
+    return line
+    
+# read darknet format cfg file, load into a dictionary later used to build the model
+def read_cfg(cfg_file):
+    
+    model_dict = dict()
+    layers = []
+    shortcuts = []
+    net = None
+
+    normal_layers = [
+    'yolo',
+    'convolutional', 
+    'upsample',
+    'route',
+    'shortcut'
+    ]
+
+    curr_layer = None
+
+    ptr = 0
+    
+    with open(cfg_file, 'r') as f:
+        
+        while True:
+
+            line = _readline(f)
+            if not line:
+                pass
+            if line is None:
+                break
+            line = line.replace('\n', '')
+            if line == '' or line[0] == '#':
+                pass
+            elif line[0] == '[':
+
+                # start a new layer
+
+                curr_layer_name = line[1:-1]
+                if curr_layer_name == 'net':
+                    curr_layer = dict()
+                    curr_layer['name'] = curr_layer_name
+
+                    while line != '':
+                        line = _readline(f).split(' ')
+                        if line[0] != "#":
+                            if line [0] == '':
+                                break
+                            name = line[0]
+                            val = line[2]
+                            # test if this is supposed to be a float or not
+                            res = '.' in val
+                            dig = val.isdigit()
+                            if not dig and not res:
+                                curr_layer[name] = dig
+                            else:
+                                val = float(val) if res else int(val)
+                            curr_layer[name] = val
+                    net = curr_layer
+
+                elif curr_layer_name in normal_layers:
+
+                    curr_layer = dict()
+                    curr_layer['name'] = curr_layer_name
+
+                    while line != '':
+                        line = _readline(f)
+                        if line is None:
+                            break
+                        else:
+                            line = line.split(' ')
+
+                        if line[0] != "#":
+                            if line [0] == '':
+                                break
+                            name = line[0]
+                            val = line[2]
+                            # test if this is supposed to be a float or not
+                            res = '.' in val
+                            dig = val.isdigit()
+                            if not dig and not res:
+                                curr_layer[name] = dig
+                            else:
+                                val = float(val) if res else int(val)
+                            curr_layer[name] = val
+                    layers.append(curr_layer)
+                    
+                    ptr += 1
+                elif current_layer_name in ['shortcut', 'route']:
+                    
