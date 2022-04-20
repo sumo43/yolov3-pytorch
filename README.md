@@ -8,6 +8,7 @@ YOLOV3 implementation in PyTorch
 - [ ] Integrate Python COCO API
 - [ ] Test out training
 
+
 ### YOLOV3
 
 [Link to Author](https://pjreddie.com/darknet/yolo/)
