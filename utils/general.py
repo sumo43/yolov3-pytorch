@@ -126,6 +126,8 @@ def _readline(f):
         return None
     line = line.replace('\n', '')
     return line
+
+
     
 # read darknet format cfg file, load into a dictionary later used to build the model
 def read_cfg(cfg_file):
@@ -133,7 +135,7 @@ def read_cfg(cfg_file):
     model_dict = dict()
     layers = []
     shortcuts = []
-    net = None
+    params = None
 
     normal_layers = [
     'yolo',
@@ -183,7 +185,7 @@ def read_cfg(cfg_file):
                             else:
                                 val = float(val) if res else int(val)
                             curr_layer[name] = val
-                    net = curr_layer
+                    params = curr_layer
 
                 elif curr_layer_name in normal_layers:
 
@@ -213,5 +215,11 @@ def read_cfg(cfg_file):
                     layers.append(curr_layer)
                     
                     ptr += 1
-                elif current_layer_name in ['shortcut', 'route']:
-                    
+                     
+    model_dict['layers'] = layers
+    model_dict['params'] = params
+
+# given a config file, create a model
+def create_model(config: dict):
+
+    layers = config['layers']
