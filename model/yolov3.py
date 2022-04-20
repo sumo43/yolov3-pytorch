@@ -24,6 +24,29 @@ from ..utils import YOLOV3
 from ..utils import label_map, priors, scales
 """
 
+class YoloConv(nn.Module):
+    def __init__(self, in_size, out_size):
+
+        super(ResidualBlock, self).__init__()
+
+        self.conv1 = nn.Conv2d(out_size, in_size, kernel_size=(1, 1))
+        self.conv2 = nn.Conv2d(
+            in_size, out_size, kernel_size=(3, 3), padding=(1, 1))
+        self.bn = nn.BatchNorm2d(out_size)
+        self.relu = nn.LeakyReLU()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+
+        x_f = self.conv1(x)
+        x_f = self.conv2(x_f)
+        x_f = self.bn(x_f)
+        x_f = self.relu(x_f)
+
+        x = x + x_f
+
+        return x
+
+
 
 class ResidualBlock(nn.Module):
     def __init__(self, in_size, out_size):
@@ -66,6 +89,74 @@ class YoloHead1(nn.Module):
         x = self.leaky_relu(x)
         x = self.bn2(x)
         return x
+
+def generate_conv(layer: dict, in_channels):
+    
+    filters = layer['filters']
+    stride = layer['stride']
+    stride = (stride, stride)
+    pad = layer['pad']
+    kernel_size = layer['size']
+    activation = layer['activation']
+
+    conv = nn.Conv2d(in_channels, filters, kernel_size, stride, pad)
+
+    return conv
+
+class YOLO(nn.Module):
+    def __init__(self, cfg):
+        # input size = (256, 256)
+        super(YOLO, self).__init__()
+
+        params = cfg['params']
+        cfg_layers = cfg['layers']
+        layers = []
+        im_channels = 3
+        prev_conv_inc = None
+
+        for layer in cfg['layers']:
+            if layer['name'] == 'convolutional':
+                if prev_conv_inc == None:
+                    conv_layer = generate_conv(layer, im_channels)
+                else:
+                    conv_layer = generate_conv(layer, prev_conv_inc)
+                
+                curr_layer = []
+                curr_layer.append(conv_layer)
+                
+                prev_conv_inc = layer['filters']
+                
+                if 'batch_normalize' in layer.keys() and layer['batch_normalize'] == 1:
+                    bn_layer = nn.BatchNorm2d(layer['filters'])
+                    curr_layer.append(bn_layer)
+                
+                if layer['activation'] == 'leaky':
+                    relu_layer = nn.LeakyReLU()
+                elif layer['activation'] == 'relu':
+                    relu_layer = nn.ReLU()
+
+                curr_layer.append(relu_layer)
+
+                curr_layer = nn.Sequential(*curr_layer)
+
+                layers.append(curr_layer)
+            elif layer['name'] == 'upsample':
+                upsample_layer = torch.nn.Upsample(scale_factor=2)
+
+                layers.append(upsample_layer)
+    
+        self.layers = nn.Sequential(*layers)
+
+        print(self.layers)
+    
+
+    def load_weights(self, weights_file):
+        return NotImplemented
+
+    def forward(self, x):
+        return x
+
+                
 
 
 class YOLOV3(nn.Module):
@@ -200,12 +291,9 @@ class YOLOV3(nn.Module):
         yolo_output_3 = x
         
         #yolo_output_1 [0, (1, 3)
-        
-                       
+    
         #grid = torch.meshgrid([torch.arange(10), torch.arange(10)],             indexing='ij')
         #grid = torch.stack((10, 10), 2).view(1, 1, 10, 10, 2)
-        
-        
 
         return yolo_output_1, yolo_output_2, yolo_output_3
 
