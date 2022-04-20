@@ -12,72 +12,43 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torch.utils.data.dataloader import default_collate
 from torchvision import transforms
-from utils.params import label_map, priors, scales
-
 import math
 
-def compare_iou(a, b):
-    i = abs(a[2] - b[2]) * abs(a[3] - b[3])
-    u = abs(a[2] * a[3]) + abs(b[2] * b[3])
-    return i / u
 
-def build_groundtruth(arr, bounding_box, scales_index, grid_size):
-    bounding_box = coco2yolo(bounding_box)
-    # bounding boxes in terms of cells. Should all be 0-10. For x and y, c_x and c_y are their floor
-                
-    bounding_box[1] /= grid_size
-    bounding_box[2] /= grid_size
-    bounding_box[3] /= grid_size
-    bounding_box[4] /= grid_size
+# call_x, cell_y are the distance of the cell from the top right corner. Multiply by 32
+def get_gt(label: torch.Tensor, cell_x, cell_y, prior: tuple, scale=32) -> torch.Tensor:
+    gt = torch.zeros(5)
 
-    c_x = torch.floor(bounding_box[1]).type(torch.uint8)
-    c_y = torch.floor(bounding_box[2]).type(torch.uint8)
-                
-    cl = bounding_box[0].type(torch.uint8)
-    #y_1[c_x][c_y][prior_num * 85]
-                
-    # find the prior that has the highest IoU with the bounding box. We only use this prior for loss
-    best_iou = -1
-    best_prior = priors[scales[0][0]]
-                
-    i = 0
-        
-    c_x = int(c_x)
-    c_y = int(c_y)
-                
-    for prior_num in scales[scales_index]:
-        prior = priors[prior_num][0] / grid_size, priors[prior_num][1] / grid_size
+    gt[1] = label[1]
+    gt[2] = label[2]
+    gt[3] = label[3]
+    gt[4] = label[4]
 
-        prior_w, prior_h = prior
+    prior_w, prior_h = prior
+    prior_x = cell_x + (scale // 2)
+    prior_y = cell_y + (scale // 2)
 
-        prior_coords = torch.tensor((bounding_box[1], bounding_box[2], prior_w, prior_h))
-        box_coords = bounding_box[1:5]
+    gt[1] = inverse_sigmoid((gt[1] - cell_x) / 32)
+    gt[2] = inverse_sigmoid((gt[2] - cell_y) / 32)
+    gt[2] /= 32
 
-        iou = compare_iou(prior_coords, box_coords)
+    gt[3] = gt[3] / prior_w
+    gt[3] /= 32
+    gt[4] = gt[4] / prior_h
+    gt[4] /= 32
 
-        if(iou > best_iou):
-            best_iou = iou
-            best_prior = prior
-            best_prior_index = i
+    gt[3] = torch.log(gt[3])
+    gt[4] = torch.log(gt[4])
 
-        i += 1
-                    
-    inv_x = inverse_sigmoid(bounding_box[1] - c_x)
-    inv_y = inverse_sigmoid(bounding_box[2] - c_y)
-    inv_w = torch.log(bounding_box[3] / best_prior[0])
-    inv_h = torch.log(bounding_box[4] / best_prior[1])
-    inv_o = iou
+    # inverse sigmoid of the ioU score
+    _iou = iou(prior_w, prior_h, label[3], label[4])
+    if _iou == 0:
+        o = 0
+    else:
+        o = torch.log(_iou)
+    return torch.tensor((*gt, o))
 
-    arr[0][best_prior_index * 85][c_x][c_y] = inv_x
-    arr[0][best_prior_index * 85 + 1][c_x][c_y] = inv_y
-    arr[0][best_prior_index * 85 + 2][c_x][c_y] = inv_w
-    arr[0][best_prior_index * 85 + 3][c_x][c_y] = inv_h
-    arr[0][best_prior_index * 85 + 4][c_x][c_y] = iou
-    """
-    if(cl < 80):
-        arr[0][best_prior_index * 85 + (5 + int(cl))][c_x][c_y] = 1 
-    """
-    
+
 def coco2yolo(label: torch.Tensor) -> torch.Tensor:
     yolo = torch.clone(label)
 
@@ -95,8 +66,38 @@ def xywh2xyxy(arr: torch.Tensor) -> torch.Tensor:
     return torch.Tensor((x0, y0, x1, y1))
 
 
+def compare_iou(a, b):
+
+    # a, b: xyxy
+    # this should not be negative
+
+    # this is stupid, fix later
+
+    i_w = abs(min(a[2], b[2]) - max(a[0], b[0]))
+    i_h = abs(min(a[1], b[1]) - max(a[3], b[3]))
+
+    i = i_w * i_h
+
+    a_1 = abs((a[1] - a[0]) * (a[3] - a[2]))
+    a_2 = abs((b[1] - b[0]) * (b[3] - b[2]))
+
+    u = a_1 + a_2
+
+    return abs(i / u)
+
+# objectness scores are fucked. figure out how they are implemented in darkent
+
 def inverse_sigmoid(x: torch.Tensor) -> torch.Tensor:
     return torch.log(x / (1 - x))
+
+
+def intersection(box1, box2):
+    x_left = max(box1[1], box2[1])
+    y_left = max(box1[2], box2[2])
+    x_right = min(box1[1] + box1[3], box2[1] + box2[3])
+    y_right = min(box1[2] + box1[4], box2[2] + box2[4])
+
+    return (x_right - x_left) * (y_right - y_left)
 
 # get the cell that the bounding box is in, and its offsets
 
@@ -126,8 +127,6 @@ def _readline(f):
         return None
     line = line.replace('\n', '')
     return line
-
-
     
 # read darknet format cfg file, load into a dictionary later used to build the model
 def read_cfg(cfg_file):
@@ -218,6 +217,8 @@ def read_cfg(cfg_file):
                      
     model_dict['layers'] = layers
     model_dict['params'] = params
+    
+    return model_dict
 
 # given a config file, create a model
 def create_model(config: dict):
