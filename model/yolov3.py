@@ -24,6 +24,7 @@ from ..utils import YOLOV3
 from ..utils import label_map, priors, scales
 """
 
+
 class YoloConv(nn.Module):
     def __init__(self, in_size, out_size):
 
@@ -46,6 +47,7 @@ class YoloConv(nn.Module):
 
         return x
 
+
 class ResidualBlock(nn.Module):
     def __init__(self, in_size, out_size):
 
@@ -67,6 +69,8 @@ class ResidualBlock(nn.Module):
         x = x + x_f
 
         return x
+
+
 class YoloHead1(nn.Module):
     def __init__(self, sz_1, sz_2):
         super(YoloHead1, self).__init__()
@@ -86,18 +90,23 @@ class YoloHead1(nn.Module):
         x = self.bn2(x)
         return x
 
+
 def generate_conv(layer: dict, in_channels):
-    
+
     filters = layer['filters']
     stride = layer['stride']
-    stride = (stride, stride)
     pad = layer['pad']
     kernel_size = layer['size']
     activation = layer['activation']
 
-    conv = nn.Conv2d(in_channels, filters, kernel_size, stride, pad)
+    if kernel_size == 1:
+        pad = 0
+
+    conv = nn.Conv2d(in_channels, filters,
+                     kernel_size=kernel_size, stride=stride, padding=pad)
 
     return conv
+
 
 class YoloHead(nn.Module):
     def __init__(self):
@@ -105,6 +114,7 @@ class YoloHead(nn.Module):
 
     def forward(self, x):
         return x
+
 
 class YOLOV3(nn.Module):
     def __init__(self, cfg):
@@ -129,17 +139,16 @@ class YOLOV3(nn.Module):
                     conv_layer = generate_conv(layer, im_channels)
                 else:
                     conv_layer = generate_conv(layer, prev_conv_inc)
-                
+
                 curr_layer = []
                 curr_layer.append(conv_layer)
 
-                
                 prev_conv_inc = layer['filters']
-                
+
                 if 'batch_normalize' in layer.keys() and layer['batch_normalize'] == 1:
                     bn_layer = nn.BatchNorm2d(layer['filters'])
                     curr_layer.append(bn_layer)
-                
+
                 if layer['activation'] == 'leaky':
                     relu_layer = nn.LeakyReLU()
                     curr_layer.append(relu_layer)
@@ -151,7 +160,7 @@ class YOLOV3(nn.Module):
 
                 layers.append(curr_layer)
                 i += 1
-            
+
             elif layer['name'] == 'upsample':
                 upsample_layer = torch.nn.Upsample(scale_factor=2)
                 layers.append(upsample_layer)
@@ -180,25 +189,25 @@ class YOLOV3(nn.Module):
 
                     self.routes[_from] = _to
                 i += 1
-            
 
             elif layer['name'] == 'yolo':
-
                 layers.append(YoloHead())
                 i += 1
-             
+
         self.layers = nn.Sequential(*layers)
-        
+
     def summary(self):
-        
+
         for i, layer in enumerate(self.layers):
             print(f'{i}: {layer}')
+
+            if i == 10:
+                break
 
     def load_weights(self, weights_file):
         return NotImplemented
 
     def forward(self, x):
-
 
         saved_x_shortcuts = dict()
         saved_x_routes = dict()
@@ -217,7 +226,5 @@ class YOLOV3(nn.Module):
                 saved_x_routes[_to] = x
             elif i in saved_x_routes.keys():
                 x = torch.cat(x, saved_x_routes[i])\
-
-            print(x.shape)
 
         return x
