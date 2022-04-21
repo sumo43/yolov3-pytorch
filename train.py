@@ -9,5 +9,8 @@ cfg = read_cfg('cfg/yolov3.cfg')
 yolo = YOLOV3(cfg)
 
 
+
+yolo.summary()
+
 x = torch.zeros((1, 3, 320, 320))
-yolo(x)
+print(yolo(x).shape)

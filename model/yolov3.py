@@ -46,8 +46,6 @@ class YoloConv(nn.Module):
 
         return x
 
-
-
 class ResidualBlock(nn.Module):
     def __init__(self, in_size, out_size):
 
@@ -69,8 +67,6 @@ class ResidualBlock(nn.Module):
         x = x + x_f
 
         return x
-
-
 class YoloHead1(nn.Module):
     def __init__(self, sz_1, sz_2):
         super(YoloHead1, self).__init__()
@@ -121,21 +117,12 @@ class YOLOV3(nn.Module):
         im_channels = 3
         prev_conv_inc = None
 
-        shortcuts = dict()
+        self.shortcuts = dict()
         saved_x = dict()
 
-        routes = dict()
+        self.routes = dict()
 
         i = 0
-
-        #print(cfg['layers'])
-
-        #for layer in cfg['layers']:
-            #rint(layer)
-
-
-        print(len(cfg['layers']))
-
         for layer in cfg['layers']:
             if layer['name'] == 'convolutional':
                 if prev_conv_inc == None:
@@ -176,7 +163,7 @@ class YOLOV3(nn.Module):
                     _from = i - _from
                 _to = i
 
-                shortcuts[_from] = _to
+                self.shortcuts[_from] = _to
                 i += 1
 
             elif layer['name'] == 'route':
@@ -184,14 +171,14 @@ class YOLOV3(nn.Module):
                     route_layers = layer['layers'].split(',')
                     _to = route_layers[0]
                     _from = route_layers[1]
-                    routes[_from] = _to
+                    self.routes[_from] = _to
                 else:
                     _from = int(layer['layers'])
                     if _from < 1:
                         _from = i - _from
                     _to = i
 
-                    routes[_from] = _to
+                    self.routes[_from] = _to
                 i += 1
             
 
@@ -200,36 +187,37 @@ class YOLOV3(nn.Module):
                 layers.append(YoloHead())
                 i += 1
              
-            #print(layers[i])
-
-            
-
-        print(layers)
-
-        print(i)    
-
         self.layers = nn.Sequential(*layers)
         
-    
+    def summary(self):
+        
+        for i, layer in enumerate(self.layers):
+            print(f'{i}: {layer}')
 
     def load_weights(self, weights_file):
         return NotImplemented
 
     def forward(self, x):
 
+
+        saved_x_shortcuts = dict()
+        saved_x_routes = dict()
+
         for i, layer in enumerate(self.layers):
 
             x = layer(x)
-            if i in shortcuts.keys():
-                _to = shortcuts[i]
-                saved_x[_to] = x
-            elif i in saved_weights.keys():
-                x = x + saved_weights[i]
+            if i in self.shortcuts.keys():
+                _to = self.shortcuts[i]
+                saved_x_shortcuts[_to] = x
+            elif i in saved_x_shortcuts.keys():
+                x = x + saved_x_shortcuts[i]
 
-            if i in routes.keys():
-                _to = shortcuts[i]
-                saved_x[_to] = x
-            elif i in route_weights.keys():
-                x = torch.cat(x, route_weights[i])
+            if i in self.routes.keys():
+                _to = self.routes[i]
+                saved_x_routes[_to] = x
+            elif i in saved_x_routes.keys():
+                x = torch.cat(x, saved_x_routes[i])\
+
+            print(x.shape)
 
         return x
