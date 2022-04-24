@@ -1,3 +1,4 @@
+from pyrsistent import b
 import torch
 import torch.nn as nn
 import numpy as np
@@ -185,6 +186,7 @@ def read_cfg(cfg_file):
                                 val = float(val) if res else int(val)
                             curr_layer[name] = val
                     params = curr_layer
+                    print('a')
 
                 elif curr_layer_name in normal_layers:
 
@@ -203,14 +205,21 @@ def read_cfg(cfg_file):
                                 break
                             name = line[0]
                             val = line[2]
-                            # test if this is supposed to be a float or not
-                            res = '.' in val
-                            dig = val.isdigit()
-                            if not dig and not res:
-                                curr_layer[name] = dig
+                            if ',' in val and curr_layer_name != 'yolo':
+                                val = line[2:]
+                                val1 = int(val[0].replace(',', ''))
+                                val2 = int(val[1])
+                                val = [val1, val2]
+                                curr_layer[name] = val
                             else:
-                                val = float(val) if res else int(val)
-                            curr_layer[name] = val
+                                # test if this is supposed to be a float or not
+                                res = '.' in val
+                                dig = val.isdigit()
+                                if not dig and not res:
+                                    curr_layer[name] = dig
+                                else:
+                                    val = float(val) if res else int(val)
+                                curr_layer[name] = val
                     layers.append(curr_layer)
                     
                     ptr += 1

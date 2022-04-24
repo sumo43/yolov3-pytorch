@@ -25,7 +25,7 @@ from ..utils import label_map, priors, scales
 """
 
 
-def generate_conv(layer: dict, in_channels):
+def generate_conv(layer: dict, in_channels, bias=False):
 
     filters = layer['filters']
     stride = layer['stride']
@@ -37,7 +37,7 @@ def generate_conv(layer: dict, in_channels):
         pad = 0
 
     conv = nn.Conv2d(in_channels, filters,
-                     kernel_size=kernel_size, stride=stride, padding=pad)
+                     kernel_size=kernel_size, stride=stride, padding=pad, bias=bias)
 
     return conv
 
@@ -50,6 +50,28 @@ class YoloHead(nn.Module):
     def forward(self, x):
         # do fancy math here
         return x
+
+
+
+class YoloRoute(nn.Module):
+    def __init__(self):
+
+        super(YoloRoute, self).__init__()
+
+    def forward(self, x):
+        # do fancy math here
+        return x
+
+
+class YoloShortcut(nn.Module):
+    def __init__(self):
+
+        super(YoloShortcut, self).__init__()
+
+    def forward(self, x):
+        # do fancy math here
+        return x
+
 
 
 class YOLOV3(nn.Module):
@@ -67,17 +89,26 @@ class YOLOV3(nn.Module):
         saved_x = dict()
 
         self.routes = dict()
+        self.single_routes = dict()
 
         self.yolo_layers = []
 
-        i = 0
+        i = 1
         l = 0
+
+
         for layer in cfg['layers']:
             if layer['name'] == 'convolutional':
+
+                bias = True
+
+                if 'batch_normalize' in layer.keys():
+                    bias = False 
+
                 if prev_conv_inc == None:
-                    conv_layer = generate_conv(layer, im_channels)
+                    conv_layer = generate_conv(layer, im_channels, bias=bias)
                 else:
-                    conv_layer = generate_conv(layer, prev_conv_inc)
+                    conv_layer = generate_conv(layer, prev_conv_inc, bias=bias)
 
                 curr_layer = []
                 curr_layer.append(conv_layer)
@@ -91,6 +122,7 @@ class YOLOV3(nn.Module):
                 if layer['activation'] == 'leaky':
                     relu_layer = nn.LeakyReLU()
                     curr_layer.append(relu_layer)
+                    no_bias = False
                 elif layer['activation'] == 'relu':
                     relu_layer = nn.ReLU()
                     curr_layer.append(relu_layer)
@@ -114,28 +146,52 @@ class YOLOV3(nn.Module):
                 _to = i
 
                 self.shortcuts[_from] = _to
+                layers.append(YoloShortcut())
                 i += 1
 
             elif layer['name'] == 'route':
-                if ',' in layer['layers']:
-                    route_layers = layer['layers'].split(',')
-                    _to = route_layers[0]
-                    _from = route_layers[1]
-                    self.routes[_from] = _to
+
+                # the route has 2 layers, we concatenate
+                if isinstance(layer['layers'], list):
+                    _from = int(layer['layers'][0])
+                    if _from < 1:
+                        _from = i + _from
+                    _to = int(layer['layers'][1])
+
+                    self.routes[_to] = _from
+
                 else:
                     _from = int(layer['layers'])
                     if _from < 1:
-                        _from = i - _from
+                        _from = i + _from 
                     _to = i
 
-                    self.routes[_from] = _to
+                    self.single_routes[_from] = _to
+
+                layers.append(YoloRoute())
+                i += 1
 
             elif layer['name'] == 'yolo':
 
                 layers.append(YoloHead())
-                self.yolo_layers.append(l)
+                self.yolo_layers.append(i)
                 i += 1
                 l += 1
+            
+
+        for i in self.routes.keys():
+            _from = self.routes[i]
+            conv_shape_in = layers[i - 1][0].weight.shape[1] + layers[_from - 2][0].weight.shape[0] * 2
+            conv_shape_out = layers[_from - 2][0].weight.shape[0]
+            layers[_from + 1][0] = nn.Conv2d(conv_shape_in, conv_shape_out, 1, 1, bias=False) 
+
+        for i in self.single_routes.keys():
+
+            _from = self.single_routes[i]
+            conv_shape_in = layers[i][0].weight.shape[1]
+            conv_shape_out = layers[_from][0].weight.shape[0]
+            layers[_from][0] = nn.Conv2d(conv_shape_in, conv_shape_out, 1, 1, bias=False) 
+
 
         self.layers = nn.Sequential(*layers)
 
@@ -156,7 +212,6 @@ class YOLOV3(nn.Module):
         sd = self.state_dict()
         sd_keys = list(sd.keys())
 
-        print(sd_keys)
 
         len_sd = len(sd_keys)
 
@@ -165,6 +220,7 @@ class YOLOV3(nn.Module):
             weights = np.fromfile(f, dtype=np.float32)
 
         ptr = 0
+
 
         for layer in self.layers:
 
@@ -176,15 +232,15 @@ class YOLOV3(nn.Module):
                 # handle the conv layer first
                 conv = layer[0]
 
-                bs = conv.bias.data.shape.numel()
-
+                if conv.bias is not None:
+                    bs = conv.bias.data.shape.numel()
+                    conv.bias.data = torch.from_numpy(
+                        weights[ptr:ptr+bs])
+                    ptr += bs
+                
                 ws = tuple(conv.weight.data.shape)
                 wsz = np.prod(ws)
-
-                conv.bias.data = torch.from_numpy(
-                    weights[ptr:ptr+bs])
-                ptr += bs
-                # beta (weight)
+               # beta (weight)
                 conv.weight.data = torch.from_numpy(
                     weights[ptr:ptr+wsz]).view_as(conv.weight.data)
                 ptr += wsz
@@ -211,20 +267,36 @@ class YOLOV3(nn.Module):
 
         print(f'weights loaded: {ptr}')
 
+    
+
     def forward(self, x):
 
         saved_x_shortcuts = dict()
         saved_x_routes = dict()
+        saved_single_x_routes = dict()
         yolo_outputs = []
+
+        """
+
+        print(self.routes)
+        for key in self.routes:
+            print(self.layers[key])
+            print(self.layers[self.routes[key]])
+        """
 
         for i, layer in enumerate(self.layers):
 
-            if i in self.yolo_layers:
-
-                # x = layer(x)
+            if i in self.yolo_layers: 
+                x = layer(x)
                 yolo_outputs.append(x)
             else:
+                if i in self.single_routes.keys():
+                    _to = self.single_routes[i]
+                    saved_single_x_routes[_to] = x
+                elif i in saved_single_x_routes.keys():
+                    x = saved_single_x_routes[i]
                 x = layer(x)
+
                 if i in self.shortcuts.keys():
                     _to = self.shortcuts[i]
                     saved_x_shortcuts[_to] = x
@@ -235,6 +307,8 @@ class YOLOV3(nn.Module):
                     _to = self.routes[i]
                     saved_x_routes[_to] = x
                 elif i in saved_x_routes.keys():
-                    x = torch.cat(x, saved_x_routes[i])
-
+                    x = torch.cat((x, saved_x_routes[i]), 1)
+        
+        yolo_outputs.append(x)
+                
         return yolo_outputs
