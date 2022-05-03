@@ -25,6 +25,23 @@ from ..utils import label_map, priors, scales
 """
 
 
+
+def process_outputs(outputs: list):
+    """given raw yolo outputs, generate a list of bounding boxes
+
+    Args:
+        outputs (list): _description_
+    """
+
+    iou = 0.5
+    threshold = 0.5
+
+
+
+
+
+
+
 def generate_conv(layer: dict, in_channels, bias=False):
 
     filters = layer['filters']
@@ -267,22 +284,12 @@ class YOLOV3(nn.Module):
 
         print(f'weights loaded: {ptr}')
 
-    
-
     def forward(self, x):
 
         saved_x_shortcuts = dict()
         saved_x_routes = dict()
         saved_single_x_routes = dict()
         yolo_outputs = []
-
-        """
-
-        print(self.routes)
-        for key in self.routes:
-            print(self.layers[key])
-            print(self.layers[self.routes[key]])
-        """
 
         for i, layer in enumerate(self.layers):
 
@@ -310,5 +317,13 @@ class YOLOV3(nn.Module):
                     x = torch.cat((x, saved_x_routes[i]), 1)
         
         yolo_outputs.append(x)
-                
-        return yolo_outputs
+
+
+        for i in range(len(yolo_outputs)):
+            yolo_outputs[i][:, :2, :, :] = 
+
+
+        if self.process_outputs:
+            return process_outputs(yolo_outputs)
+        else:
+            return yolo_outputs
