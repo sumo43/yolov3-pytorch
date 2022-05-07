@@ -88,6 +88,7 @@ def compare_iou(a, b):
 
 # objectness scores are fucked. figure out how they are implemented in darkent
 
+
 def inverse_sigmoid(x: torch.Tensor) -> torch.Tensor:
     return torch.log(x / (1 - x))
 
@@ -101,6 +102,7 @@ def intersection(box1, box2):
     return (x_right - x_left) * (y_right - y_left)
 
 # get the cell that the bounding box is in, and its offsets
+
 
 def get_cell_offsets(label: torch.Tensor) -> tuple:
 
@@ -128,108 +130,173 @@ def _readline(f):
         return None
     line = line.replace('\n', '')
     return line
-    
+
+
+int_values = [
+    'batch',
+    'subdivisions',
+    'width',
+    'height',
+    'channels',
+    'angle',
+    'burn_in',
+    'max_batches',
+    'batch_normalize',
+    'filters',
+    'size',
+    'stride',
+    'pad',
+    'classes',
+    'num',
+    'random',
+    'from'
+]
+
+float_values = [
+    'momentum',
+    'decay',
+    'saturation',
+    'exposure',
+    'hue',
+    'learning_rate',
+    'jitter',
+    'ignore_thresh',
+    'truth_thresh',
+]
+
+string_values = [
+    'policy',
+    'activation',
+]
+
+
+def get_param(line: str):
+
+    split_line = line.split(' ')
+    name = split_line[0]
+
+    if name in int_values:
+        value = int(split_line[2])
+    elif name in float_values:
+        value = float(split_line[2])
+    elif name in string_values:
+        value = str(split_line[2])
+    elif name == 'scales' or name == 'steps':
+        value = split_line[2].split(',')
+        value = [float(val) for val in value]
+    elif name == 'mask':
+        value = split_line[2].split(',')
+        value = [int(val) for val in value]
+    elif name == 'anchors':
+        values = split_line[2:]
+        value = []
+
+        for val in values:
+            if val == '':
+                continue
+
+            x, y = val.split(',')[:2]
+            value.append((x, y))
+
+    elif name == 'layers':
+        if len(split_line) == 4:
+            value = split_line[2:]
+            x = int(value[0].replace(',', ''))
+            y = int(value[1])
+            value = (x, y)
+        else:
+            value = int(split_line[2])
+    else:
+        return None, None
+
+    return name, value
+
+
+def read_block(infile):
+
+    block = dict()
+
+    # read until you reach the name of a block
+    line = _readline(infile)
+    while True:
+        if line == None:
+            return None
+        if line == '':
+            line = _readline(infile)
+            continue
+        if line[0] == '[':
+            break
+        else:
+            line = _readline(infile)
+
+    block['name'] = line[1:-1]
+    line = _readline(infile)
+
+    # read params until you reach another block name
+
+    prev_line = None
+
+    while True:
+        if line == '':
+            # skip
+            prev_line = infile.tell()
+            line = _readline(infile)
+            continue
+        if line == None or line[0] == '[':
+            infile.seek(prev_line)
+            break
+        else:
+
+            param_name, value = get_param(line)
+            if param_name != None:
+                block[param_name] = value
+
+            prev_line = infile.tell()
+            line = _readline(infile)
+
+    return block
+
 # read darknet format cfg file, load into a dictionary later used to build the model
+
+
 def read_cfg(cfg_file):
-    
+
     model_dict = dict()
     layers = []
     shortcuts = []
     params = None
 
     normal_layers = [
-    'yolo',
-    'convolutional', 
-    'upsample',
-    'route',
-    'shortcut'
+        'yolo',
+        'convolutional',
+        'upsample',
+        'route',
+        'shortcut'
     ]
 
     curr_layer = None
 
     ptr = 0
-    
+
     with open(cfg_file, 'r') as f:
-        
+        j = 0
+
+        params = None
+        layers = []
+
         while True:
 
-            line = _readline(f)
-            if not line:
-                pass
-            if line is None:
+            block = read_block(f)
+
+            if block == None:
                 break
-            line = line.replace('\n', '')
-            if line == '' or line[0] == '#':
-                pass
-            elif line[0] == '[':
 
-                # start a new layer
+            if block['name'] == 'net':
+                params = block
+            else:
+                layers.append(block)
 
-                curr_layer_name = line[1:-1]
-                if curr_layer_name == 'net':
-                    curr_layer = dict()
-                    curr_layer['name'] = curr_layer_name
-
-                    while line != '':
-                        line = _readline(f).split(' ')
-                        if line[0] != "#":
-                            if line [0] == '':
-                                break
-                            name = line[0]
-                            val = line[2]
-                            # test if this is supposed to be a float or not
-                            res = '.' in val
-                            dig = val.isdigit()
-                            if not dig and not res:
-                                curr_layer[name] = dig
-                            else:
-                                val = float(val) if res else int(val)
-                            curr_layer[name] = val
-                    params = curr_layer
-                    print('a')
-
-                elif curr_layer_name in normal_layers:
-
-                    curr_layer = dict()
-                    curr_layer['name'] = curr_layer_name
-
-                    while line != '':
-                        line = _readline(f)
-                        if line is None:
-                            break
-                        else:
-                            line = line.split(' ')
-
-                        if line[0] != "#":
-                            if line [0] == '':
-                                break
-                            name = line[0]
-                            val = line[2]
-                            if ',' in val and curr_layer_name != 'yolo':
-                                val = line[2:]
-                                val1 = int(val[0].replace(',', ''))
-                                val2 = int(val[1])
-                                val = [val1, val2]
-                                curr_layer[name] = val
-                            else:
-                                # test if this is supposed to be a float or not
-                                res = '.' in val
-                                dig = val.isdigit()
-                                if not dig and not res:
-                                    curr_layer[name] = dig
-                                else:
-                                    val = float(val) if res else int(val)
-                                curr_layer[name] = val
-                    layers.append(curr_layer)
-                    
-                    ptr += 1
-                     
     model_dict['layers'] = layers
     model_dict['params'] = params
-    
+
     return model_dict
-
-# given a config file, create a model
-def create_model(config: dict):
-
-    layers = config['layers']
