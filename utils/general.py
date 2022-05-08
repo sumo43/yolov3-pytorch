@@ -16,6 +16,31 @@ from torchvision import transforms
 import math
 
 
+def threshold(output: list):
+    """threshold the outputs, and convert them to bounding box form
+
+    Args:
+        output (list): list of yolo head outputs
+
+    Returns:
+        _type_: _description_
+    """
+    op = output[0]
+
+    op = op.view(1, 3, 85, 13, 13)
+
+    for i in range(10):
+        for j in range(10):
+            x, y, w, h = op[0, 0, 0:4, i, j]
+            #x = int(x)
+            #y = int(y)
+            #w = int(w)
+            #h = int(h)
+            conf = op[0, 0, 4, i, j]
+
+            print(f'{x} {y} {w} {h} {conf}')
+
+
 # call_x, cell_y are the distance of the cell from the top right corner. Multiply by 32
 def get_gt(label: torch.Tensor, cell_x, cell_y, prior: tuple, scale=32) -> torch.Tensor:
     gt = torch.zeros(5)
@@ -196,7 +221,7 @@ def get_param(line: str):
                 continue
 
             x, y = val.split(',')[:2]
-            value.append((x, y))
+            value.append((int(x), int(y)))
 
     elif name == 'layers':
         if len(split_line) == 4:
