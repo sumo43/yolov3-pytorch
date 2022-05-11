@@ -16,18 +16,6 @@ def threshold(input: list):
     pass
 
 
-def process_outputs(outputs: list):
-    """given raw yolo outputs, generate a list of bounding boxes
-
-    Args:
-        outputs (list): _description_
-    """
-
-    iou = 0.5
-    threshold = 0.5
-    pass
-
-
 def generate_conv(layer: dict, in_channels, bias=False):
 
     filters = layer['filters']
@@ -102,36 +90,12 @@ class YoloHead(nn.Module):
 
         self.grid = self._make_grid(nx, ny)
 
-        print(self.grid.shape)
-
-        #print(x[..., 0:2].shape)
-
         x[..., 0:2] = (x[..., 0:2].sigmoid() + self.grid) * stride  # xy
         x[..., 2:4] = torch.exp(x[..., 2:4]) * anchor_mask  # wh
         x[..., 4:] = x[..., 4:].sigmoid()
         x = x.view(bs, -1, 85)
 
         return x
-
-    """
-
-    def forward(self, x, img_size=320):
-        stride = img_size // x.size(2)
-        self.stride = stride
-        bs, _, ny, nx = x.shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
-        x = x.view(bs, self.num_anchors, self.no, ny,
-                   nx).permute(0, 1, 3, 4, 2).contiguous()
-
-        if self.grid.shape[2:4] != x.shape[2:4]:
-            self.grid = self._make_grid(nx, ny).to(x.device)
-
-        x[..., 0:2] = (x[..., 0:2].sigmoid() + self.grid) * stride  # xy
-        x[..., 2:4] = torch.exp(x[..., 2:4]) * self.anchor_grid  # wh
-        x[..., 4:] = x[..., 4:].sigmoid()
-        x = x.view(bs, -1, self.no)
-
-        return x
-    """
 
     @staticmethod
     def _make_grid(nx=20, ny=20):
@@ -290,6 +254,8 @@ class YOLOV3(nn.Module):
         # input size = (256, 256)
         super(YOLOV3, self).__init__()
 
+        self.training = False
+
         # get model metaparameters from cfg
         params = cfg['params']
 
@@ -339,7 +305,7 @@ class YOLOV3(nn.Module):
                     curr_layer.append(bn_layer)
 
                 if layer['activation'] == 'leaky':
-                    relu_layer = nn.LeakyReLU()
+                    relu_layer = nn.LeakyReLU(0.1)
                     curr_layer.append(relu_layer)
                     no_bias = False
                 elif layer['activation'] == 'relu':
@@ -363,6 +329,8 @@ class YOLOV3(nn.Module):
                 if _from < 1:
                     _from = i + _from
                 _to = i
+
+                _from += 1
 
                 self.shortcuts[_from] = _to
                 layers.append(YoloShortcut())
@@ -500,10 +468,6 @@ class YOLOV3(nn.Module):
         single_routes = 0
         routes = 0
 
-        first_layer = self.layers[0][0]
-
-        print(self.layers[0][1].weight.data)
-
         for i, layer in enumerate(self.layers):
 
             if i in self.single_routes:
@@ -522,6 +486,14 @@ class YOLOV3(nn.Module):
                 x = x + saved_x_shortcuts[i]
                 shape = x.shape
                 print(f'shortcut')
+
+                try:
+                    print(i)
+                    print(f'layer {shape} {x[0][0][0][0]}')
+                    print(f'added {saved_x_shortcuts[i][0][0][0][0]}')
+                except Exception as e:
+                    pass
+
                 shortcuts += 1
 
             if i in self.routes:
@@ -539,7 +511,11 @@ class YOLOV3(nn.Module):
             x = layer(x)
 
             shape = x.shape
-            print(f'layer {shape} ')
+            try:
+                print(i)
+                print(f'layer {shape} {x[0][0][0][0]}')
+            except Exception as e:
+                pass
 
         print(f'shortcuts: {shortcuts}')
         print(f'single routes: {single_routes}')
