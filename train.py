@@ -13,7 +13,7 @@ yolo.summary()
 yolo.load_weights('weights/yolov3.weights')
 
 img = cv2.imread('dog.jpg')
-img = cv2.resize(img, (416, 416), cv2.INTER_AREA)
+img = cv2.resize(img, (320, 320), cv2.INTER_AREA)
 img = np.array(img)
 img = np.expand_dims(img, axis=0)
 img = np.moveaxis(img, 3, -3)
@@ -23,11 +23,9 @@ x = yolo(img)
 
 for i in range(3):
     x[i] = x[i].detach()
-    x[i] = torch.reshape(
-        x[i], (1, x[i].shape[1] * x[i].shape[2] * x[i].shape[3], 85))
-    print(x[i].shape)
 
 x = torch.cat([x[0], x[1], x[2]], dim=1)
+
 #x = non_max_suppression(x)
+
 x = threshold(x)
-print(x)

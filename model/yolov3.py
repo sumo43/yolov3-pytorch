@@ -101,6 +101,11 @@ class YoloHead(nn.Module):
             anchor_mask[:, i, :, :, 1] = self.anchors[i][1]
 
         self.grid = self._make_grid(nx, ny)
+
+        print(self.grid.shape)
+
+        #print(x[..., 0:2].shape)
+
         x[..., 0:2] = (x[..., 0:2].sigmoid() + self.grid) * stride  # xy
         x[..., 2:4] = torch.exp(x[..., 2:4]) * anchor_mask  # wh
         x[..., 4:] = x[..., 4:].sigmoid()
@@ -129,7 +134,7 @@ class YoloHead(nn.Module):
     """
 
     @staticmethod
-    def _make_grid(self, nx=20, ny=20):
+    def _make_grid(nx=20, ny=20):
         yv, xv = torch.meshgrid(
             [torch.arange(ny), torch.arange(nx)], indexing='ij')
         return torch.stack((xv, yv), 2).view((1, 1, ny, nx, 2)).float()
@@ -277,8 +282,6 @@ def read_config(cfg: dict):
         layers[_from][0] = nn.Conv2d(
             conv_shape_in, conv_shape_out, 1, 1, bias=False)
 
-    print(i)
-    print(l)
     return layers
 
 
@@ -548,38 +551,3 @@ class YOLOV3(nn.Module):
             return process_outputs(yolo_outputs)
         else:
             return yolo_outputs
-    """
-
-    def forward(self, x):
-
-        img_size = x.size(2)
-        layer_outputs, yolo_outputs = [], []
-        for i, layer in enumerate(self.layers):
-
-            if module_def["type"] in ["convolutional", "upsample", "maxpool"]:
-                x = module(x)
-            elif module_def["type"] == "route":
-                combined_outputs = torch.cat(
-                    [layer_outputs[int(layer_i)] for layer_i in module_def["layers"].split(",")], 1)
-                group_size = combined_outputs.shape[1] // int(
-                    module_def.get("groups", 1))
-                group_id = int(module_def.get("group_id", 0))
-                # Slice groupings used by yolo v4
-                x = combined_outputs[:, group_size *
-                                     group_id: group_size * (group_id + 1)]
-                shape = x.shape
-                print(f'route {shape}')
-            elif module_def["type"] == "shortcut":
-                layer_i = int(module_def["from"])
-                ln = len(layer_outputs) - 1
-                x = layer_outputs[-1] + layer_outputs[layer_i]
-                shape = x.shape
-                print(f'shortcut {shape}')
-            elif module_def["type"] == "yolo":
-                x = module[0](x, img_size)
-                yolo_outputs.append(x)
-            layer_outputs.append(x)
-            shape = x.shape
-
-        return torch.cat(yolo_outputs, 1)
-    """

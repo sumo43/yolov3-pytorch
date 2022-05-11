@@ -17,7 +17,7 @@ import math
 import time
 
 
-def threshold(output: np.array, thres=0.2):
+def threshold(output: np.array, thres=0.95):
     """threshold the outputs, and convert them to bounding box form
 
     Args:
@@ -29,27 +29,26 @@ def threshold(output: np.array, thres=0.2):
     """
 
     bboxes = []
+    a = 0
 
     for i in range(output.shape[1]):
-        print(i)
         x, y, w, h, obj = output[:, i, :5].ravel()
         cls_idx = np.argmax(output[:, i, 5:])
-        conf = output[:, i, cls_idx]
-
-        print((x, y, w, h, obj))
-
-        cls_idx -= 5
+        conf = output[:, i, cls_idx + 5]
 
         if conf > thres:
+            a += 1
+
             print(f'{x} {y} {w} {h} {cls_idx} ')
         else:
             t = list(output[:, i, 5:].ravel())
 
         bboxes.append((x, y, w, h, conf, cls_idx))
+    print(a / output.shape[1])
     return bboxes
 
 
-def non_max_suppression(prediction, conf_thres=0.01, iou_thres=0.45, classes=None):
+def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=None):
     """Performs Non-Maximum Suppression(NMS) on inference results
     Returns:
          detections with shape: nx6(x1, y1, x2, y2, conf, cls)
@@ -165,6 +164,20 @@ def coco2yolo(label: torch.Tensor) -> torch.Tensor:
     return yolo
 
 
+def to_cpu(tensor):
+    return tensor.detach().cpu()
+
+
+def xywh2xyxy(x):
+    y = x.new(x.shape)
+    y[..., 0] = x[..., 0] - x[..., 2] / 2
+    y[..., 1] = x[..., 1] - x[..., 3] / 2
+    y[..., 2] = x[..., 0] + x[..., 2] / 2
+    y[..., 3] = x[..., 1] + x[..., 3] / 2
+    return y
+
+
+"""
 def xywh2xyxy(arr: torch.Tensor) -> torch.Tensor:
     x0 = arr[0] - (arr[2] / 2)
     y0 = arr[1] - (arr[3] / 2)
@@ -172,6 +185,7 @@ def xywh2xyxy(arr: torch.Tensor) -> torch.Tensor:
     y1 = y0 + arr[3]
 
     return torch.Tensor((x0, y0, x1, y1))
+"""
 
 
 def compare_iou(a, b):
