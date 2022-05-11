@@ -216,8 +216,6 @@ def read_config(cfg: dict):
                     _from = i + _from
                 _to = i
 
-                _to -= 1
-
                 self.single_routes[_from] = _to
 
             layers.append(YoloRoute())
@@ -329,8 +327,9 @@ class YOLOV3(nn.Module):
                 if _from < 1:
                     _from = i + _from
                 _to = i
+                _to -= 1
 
-                _from += 1
+                _from -= 1
 
                 self.shortcuts[_from] = _to
                 layers.append(YoloShortcut())
@@ -468,33 +467,38 @@ class YOLOV3(nn.Module):
         single_routes = 0
         routes = 0
 
+        print(self.shortcuts)
+
         for i, layer in enumerate(self.layers):
+
+            x = layer(x)
+
+            if type(layer) == torch.nn.Sequential:
+                try:
+                    shape = x.shape
+                    print(f'{i} layer {shape} {x[0][0][0][0]}')
+                except Exception as e:
+                    print(e)
+                    pass
 
             if i in self.single_routes:
                 _to = self.single_routes[i]
                 saved_single_x_routes[_to] = x
-            elif i in saved_single_x_routes.keys():
+
+            if i in saved_single_x_routes.keys():
                 shape = x.shape
                 print(f'route ')
                 x = saved_single_x_routes[i]
-                single_routes += 1
 
-            if i in self.shortcuts:
-                _to = self.shortcuts[i]
-                saved_x_shortcuts[_to] = x
             if i in saved_x_shortcuts.keys():
+                print(f'added {saved_x_shortcuts[i][0][0][0][0]}')
                 x = x + saved_x_shortcuts[i]
                 shape = x.shape
                 print(f'shortcut')
-
-                try:
-                    print(i)
-                    print(f'layer {shape} {x[0][0][0][0]}')
-                    print(f'added {saved_x_shortcuts[i][0][0][0][0]}')
-                except Exception as e:
-                    pass
-
-                shortcuts += 1
+            if i in self.shortcuts:
+                print(i)
+                _to = self.shortcuts[i]
+                saved_x_shortcuts[_to] = x
 
             if i in self.routes:
                 _to = self.routes[i]
@@ -503,23 +507,9 @@ class YOLOV3(nn.Module):
                 x = torch.cat((saved_x_routes[i], x), 1)
                 shape = x.shape
                 print(f'route')
-                routes += 1
 
             if i in self.yolo_layers:
                 yolo_outputs.append(x)
-
-            x = layer(x)
-
-            shape = x.shape
-            try:
-                print(i)
-                print(f'layer {shape} {x[0][0][0][0]}')
-            except Exception as e:
-                pass
-
-        print(f'shortcuts: {shortcuts}')
-        print(f'single routes: {single_routes}')
-        print(f'routes: {routes}')
 
         yolo_outputs.append(x)
 
