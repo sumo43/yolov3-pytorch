@@ -48,10 +48,15 @@ def generate_conv(layer: dict, in_channels, bias=False):
 class YoloHead(nn.Module):
     def __init__(self, info: dict):
 
-        self.anchors = [info['anchors'][i] for i in info['mask']]
-
         super(YoloHead, self).__init__()
 
+        self.anchors = [info['anchors'][i] for i in info['mask']]
+        self.num_anchors = 3
+        self.num_classes = 80
+        self.no = self.num_classes + 5  # number of outputs per anchor
+        self.grid = torch.zeros(1)  # TODO
+
+    """
     def forward(self, x):
 
         n_b = x.shape[-1]
@@ -78,8 +83,56 @@ class YoloHead(nn.Module):
         x[:, :, 4:, :, :] = x[:, :, 4:, :, :].sigmoid()
 
         x = x.view(bs, 255, n_b, n_b)
+        return x
+    """
+
+    # some code borrowed from https://github.com/eriklindernoren/PyTorch-YOLOv3
+    def forward(self, x, img_size=320):
+
+        stride = img_size // x.shape[2]
+        self.stride = stride
+        bs, _, ny, nx = x.shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
+        x = x.view(bs, 3, 85, ny,
+                   nx).permute(0, 1, 3, 4, 2).contiguous()
+
+        anchor_mask = torch.ones((1, 3, ny, nx, 2))
+        for i in range(3):
+            anchor_mask[:, i, :, :, 0] = self.anchors[i][0]
+            anchor_mask[:, i, :, :, 1] = self.anchors[i][1]
+
+        self.grid = self._make_grid(nx, ny)
+        x[..., 0:2] = (x[..., 0:2].sigmoid() + self.grid) * stride  # xy
+        x[..., 2:4] = torch.exp(x[..., 2:4]) * anchor_mask  # wh
+        x[..., 4:] = x[..., 4:].sigmoid()
+        x = x.view(bs, -1, 85)
 
         return x
+
+    """
+
+    def forward(self, x, img_size=320):
+        stride = img_size // x.size(2)
+        self.stride = stride
+        bs, _, ny, nx = x.shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
+        x = x.view(bs, self.num_anchors, self.no, ny,
+                   nx).permute(0, 1, 3, 4, 2).contiguous()
+
+        if self.grid.shape[2:4] != x.shape[2:4]:
+            self.grid = self._make_grid(nx, ny).to(x.device)
+
+        x[..., 0:2] = (x[..., 0:2].sigmoid() + self.grid) * stride  # xy
+        x[..., 2:4] = torch.exp(x[..., 2:4]) * self.anchor_grid  # wh
+        x[..., 4:] = x[..., 4:].sigmoid()
+        x = x.view(bs, -1, self.no)
+
+        return x
+    """
+
+    @staticmethod
+    def _make_grid(self, nx=20, ny=20):
+        yv, xv = torch.meshgrid(
+            [torch.arange(ny), torch.arange(nx)], indexing='ij')
+        return torch.stack((xv, yv), 2).view((1, 1, ny, nx, 2)).float()
 
 
 class YoloRoute(nn.Module):
@@ -170,7 +223,7 @@ def read_config(cfg: dict):
         elif layer['name'] == 'shortcut':
             _from = int(layer['from'])
             if _from < 1:
-                _from = i - _from
+                _from = i + _from
             _to = i
 
             self.shortcuts[_from] = _to
@@ -308,9 +361,6 @@ class YOLOV3(nn.Module):
                     _from = i + _from
                 _to = i
 
-                _from -= 1
-                _to -= 1
-
                 self.shortcuts[_from] = _to
                 layers.append(YoloShortcut())
                 i += 1
@@ -395,22 +445,10 @@ class YOLOV3(nn.Module):
 
             if isinstance(layer, torch.nn.modules.container.Sequential):
 
-                # print(layer)
-                # handle the conv layer first
+                # batch norm OR conv bias
+                # then weights
+
                 conv = layer[0]
-
-                if conv.bias is not None:
-                    bs = conv.bias.data.shape.numel()
-                    conv.bias.data = torch.from_numpy(
-                        weights[ptr:ptr+bs])
-                    ptr += bs
-
-                ws = tuple(conv.weight.data.shape)
-                wsz = np.prod(ws)
-               # beta (weight)
-                conv.weight.data = torch.from_numpy(
-                    weights[ptr:ptr+wsz]).view_as(conv.weight.data)
-                ptr += wsz
 
                 if len(layer) > 1:
 
@@ -419,6 +457,7 @@ class YOLOV3(nn.Module):
 
                     bn.bias.data = torch.from_numpy(weights[ptr:ptr+bs])
                     ptr += bs
+
                     # beta (weight)
                     bn.weight.data = torch.from_numpy(weights[ptr:ptr+bs])
                     ptr += bs
@@ -431,6 +470,18 @@ class YOLOV3(nn.Module):
                     ptr += bs
                     # sd[param_num_batches_tracked] =  torch.from_numpy(weights[ptr:ptr+bs])
                     # ptr += bs
+                else:
+                    bs = conv.bias.data.shape.numel()
+                    conv.bias.data = torch.from_numpy(
+                        weights[ptr:ptr+bs])
+                    ptr += bs
+
+                ws = tuple(conv.weight.data.shape)
+                wsz = np.prod(ws)
+                # beta (weight)
+                conv.weight.data = torch.from_numpy(
+                    weights[ptr:ptr+wsz]).view_as(conv.weight.data)
+                ptr += wsz
 
         print(f'weights loaded: {ptr}')
 
@@ -446,45 +497,89 @@ class YOLOV3(nn.Module):
         single_routes = 0
         routes = 0
 
-        print(self.single_routes)
+        first_layer = self.layers[0][0]
+
+        print(self.layers[0][1].weight.data)
 
         for i, layer in enumerate(self.layers):
 
+            if i in self.single_routes:
+                _to = self.single_routes[i]
+                saved_single_x_routes[_to] = x
+            elif i in saved_single_x_routes.keys():
+                shape = x.shape
+                print(f'route ')
+                x = saved_single_x_routes[i]
+                single_routes += 1
+
+            if i in self.shortcuts:
+                _to = self.shortcuts[i]
+                saved_x_shortcuts[_to] = x
+            if i in saved_x_shortcuts.keys():
+                x = x + saved_x_shortcuts[i]
+                shape = x.shape
+                print(f'shortcut')
+                shortcuts += 1
+
+            if i in self.routes:
+                _to = self.routes[i]
+                saved_x_routes[_to] = x
+            elif i in saved_x_routes.keys():
+                x = torch.cat((saved_x_routes[i], x), 1)
+                shape = x.shape
+                print(f'route')
+                routes += 1
+
             if i in self.yolo_layers:
-                x = layer(x)
                 yolo_outputs.append(x)
-            else:
-                x = layer(x)
 
-                if i in self.shortcuts:
-                    _to = self.shortcuts[i]
-                    saved_x_shortcuts[_to] = x
-                if i in saved_x_shortcuts.keys():
-                    x = x + saved_x_shortcuts[i]
-                    shortcuts += 1
+            x = layer(x)
 
-                if i in self.routes.keys():
-                    _to = self.routes[i]
-                    saved_x_routes[_to] = x
-                elif i in saved_x_routes.keys():
-                    print(x.shape)
-                    print(saved_x_routes[i].shape)
-                    x = torch.cat((x, saved_x_routes[i]), 1)
-
-                if i in self.single_routes.keys():
-                    _to = self.single_routes[i]
-                    saved_single_x_routes[_to] = x
-                elif i in saved_single_x_routes.keys():
-                    print(x.shape)
-                    print(single_x_routes[i].shape)
-                    x = saved_single_x_routes[i]
-                    single_routes += 1
+            shape = x.shape
+            print(f'layer {shape} ')
 
         print(f'shortcuts: {shortcuts}')
         print(f'single routes: {single_routes}')
+        print(f'routes: {routes}')
+
         yolo_outputs.append(x)
 
         if self.process_outputs:
             return process_outputs(yolo_outputs)
         else:
             return yolo_outputs
+    """
+
+    def forward(self, x):
+
+        img_size = x.size(2)
+        layer_outputs, yolo_outputs = [], []
+        for i, layer in enumerate(self.layers):
+
+            if module_def["type"] in ["convolutional", "upsample", "maxpool"]:
+                x = module(x)
+            elif module_def["type"] == "route":
+                combined_outputs = torch.cat(
+                    [layer_outputs[int(layer_i)] for layer_i in module_def["layers"].split(",")], 1)
+                group_size = combined_outputs.shape[1] // int(
+                    module_def.get("groups", 1))
+                group_id = int(module_def.get("group_id", 0))
+                # Slice groupings used by yolo v4
+                x = combined_outputs[:, group_size *
+                                     group_id: group_size * (group_id + 1)]
+                shape = x.shape
+                print(f'route {shape}')
+            elif module_def["type"] == "shortcut":
+                layer_i = int(module_def["from"])
+                ln = len(layer_outputs) - 1
+                x = layer_outputs[-1] + layer_outputs[layer_i]
+                shape = x.shape
+                print(f'shortcut {shape}')
+            elif module_def["type"] == "yolo":
+                x = module[0](x, img_size)
+                yolo_outputs.append(x)
+            layer_outputs.append(x)
+            shape = x.shape
+
+        return torch.cat(yolo_outputs, 1)
+    """
