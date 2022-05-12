@@ -44,7 +44,6 @@ class YoloHead(nn.Module):
         self.no = self.num_classes + 5  # number of outputs per anchor
         self.grid = torch.zeros(1)  # TODO
 
-    """
     def forward(self, x):
 
         n_b = x.shape[-1]
@@ -71,6 +70,10 @@ class YoloHead(nn.Module):
         x[:, :, 4:, :, :] = x[:, :, 4:, :, :].sigmoid()
 
         x = x.view(bs, 255, n_b, n_b)
+
+        print(no)
+        x = x.view(1, n_b * n_b * 3, no)
+        print(x.shape)
         return x
     """
 
@@ -96,9 +99,9 @@ class YoloHead(nn.Module):
         x = x.view(bs, -1, 85)
 
         return x
+    """
 
-    @staticmethod
-    def _make_grid(nx=20, ny=20):
+    def _make_grid(self, nx=20, ny=20):
         yv, xv = torch.meshgrid(
             [torch.arange(ny), torch.arange(nx)], indexing='ij')
         return torch.stack((xv, yv), 2).view((1, 1, ny, nx, 2)).float()
@@ -208,7 +211,7 @@ def read_config(cfg: dict):
                     _from = i + _from
                 _to = int(layer['layers'][1])
 
-                self.routes[_to] = _from
+                self.routes[_to] = _from + 2
 
             else:
                 _from = int(layer['layers'])
@@ -216,7 +219,7 @@ def read_config(cfg: dict):
                     _from = i + _from
                 _to = i
 
-                self.single_routes[_from] = _to
+                self.single_routes[_from] = _to + 2
 
             layers.append(YoloRoute())
             i += 1
@@ -316,6 +319,14 @@ class YOLOV3(nn.Module):
                 i += 1
                 l += 1
 
+            elif layer['name'] == 'yolo':
+
+                layers.append(YoloHead(layer))
+                self.yolo_layers.append(i - 1)
+
+                i += 1
+                l += 1
+
             elif layer['name'] == 'upsample':
                 upsample_layer = torch.nn.Upsample(scale_factor=2)
                 layers.append(upsample_layer)
@@ -342,6 +353,7 @@ class YOLOV3(nn.Module):
                     _from = int(layer['layers'][0])
                     if _from < 1:
                         _from = i + _from
+
                     _to = int(layer['layers'][1])
 
                     self.routes[_to] = _from
@@ -352,37 +364,35 @@ class YOLOV3(nn.Module):
                         _from = i + _from
                     _to = i
 
+                    _from -= 1
+                    _to -= 1
+
                     self.single_routes[_from] = _to
 
                 layers.append(YoloRoute())
                 i += 1
 
-            elif layer['name'] == 'yolo':
-
-                layers.append(YoloHead(layer))
-                self.yolo_layers.append(i)
-                i += 1
-                l += 1
-
         for i in self.routes.keys():
             _from = self.routes[i]
-            conv_shape_in = layers[i - 1][0].weight.shape[1] + \
-                layers[_from - 2][0].weight.shape[0] * 2
-            conv_shape_out = layers[_from - 2][0].weight.shape[0]
-            layers[_from + 1][0] = nn.Conv2d(conv_shape_in,
-                                             conv_shape_out, 1, 1, bias=False)
+            _next = _from + 1
+
+            conv_shape_in = layers[i - 1][0].weight.shape[0] + \
+                (layers[_next][0].weight.shape[0])
+
+            conv_shape_out = layers[_next][0].weight.shape[0]
+            layers[_next][0] = nn.Conv2d(conv_shape_in,
+                                         conv_shape_out, 1, 1, bias=False)
 
         for i in self.single_routes.keys():
-
-            _from = self.single_routes[i]
-            conv_shape_in = layers[i][0].weight.shape[1]
-            conv_shape_out = layers[_from][0].weight.shape[0]
-            layers[_from][0] = nn.Conv2d(
+            _to = self.single_routes[i]
+            conv_shape_in = layers[i][0].weight.shape[0]
+            conv_shape_out = layers[_to + 1][0].weight.shape[0]
+            layers[_to + 1][0] = nn.Conv2d(
                 conv_shape_in, conv_shape_out, 1, 1, bias=False)
 
         self.layers = nn.Sequential(*layers)
 
-        print(len(layers))
+        print("this is done")
 
     def summary(self):
         for i, layer in enumerate(self.layers):
@@ -467,19 +477,10 @@ class YOLOV3(nn.Module):
         single_routes = 0
         routes = 0
 
-        print(self.shortcuts)
-
         for i, layer in enumerate(self.layers):
 
-            x = layer(x)
-
-            if type(layer) == torch.nn.Sequential:
-                try:
-                    shape = x.shape
-                    print(f'{i} layer {shape} {x[0][0][0][0]}')
-                except Exception as e:
-                    print(e)
-                    pass
+            if type(layer) == torch.nn.Sequential or type(layer) == torch.nn.Upsample:
+                x = layer(x)
 
             if i in self.single_routes:
                 _to = self.single_routes[i]
@@ -487,16 +488,12 @@ class YOLOV3(nn.Module):
 
             if i in saved_single_x_routes.keys():
                 shape = x.shape
-                print(f'route ')
                 x = saved_single_x_routes[i]
 
             if i in saved_x_shortcuts.keys():
-                print(f'added {saved_x_shortcuts[i][0][0][0][0]}')
                 x = x + saved_x_shortcuts[i]
                 shape = x.shape
-                print(f'shortcut')
             if i in self.shortcuts:
-                print(i)
                 _to = self.shortcuts[i]
                 saved_x_shortcuts[_to] = x
 
@@ -504,16 +501,11 @@ class YOLOV3(nn.Module):
                 _to = self.routes[i]
                 saved_x_routes[_to] = x
             elif i in saved_x_routes.keys():
-                x = torch.cat((saved_x_routes[i], x), 1)
+                x = torch.cat((x, saved_x_routes[i]), 1)
                 shape = x.shape
-                print(f'route')
 
             if i in self.yolo_layers:
+                x = layer(x)
                 yolo_outputs.append(x)
 
-        yolo_outputs.append(x)
-
-        if self.process_outputs:
-            return process_outputs(yolo_outputs)
-        else:
-            return yolo_outputs
+        return yolo_outputs
