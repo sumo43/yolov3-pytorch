@@ -6,7 +6,7 @@ YOLOV3 implementation in PyTorch
 
 detect.py:
 
-```
+```python
 from model.yolov3 import YOLOV3
 from utils.general import read_cfg
 
