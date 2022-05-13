@@ -23,7 +23,7 @@ dets = yolo.detect(im_to_detect, preview=True, save_img=True)
 
 output:
 
-![street_detections.jpg](https://github.com/yatsenkoa/pytorch-yolov3/blob/main/detections/street_detections.jpg?raw=true)
+![street_detections.jpg](detections/street_detections.jpg?raw=true)
 
 ### TODO
 
