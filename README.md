@@ -1,6 +1,6 @@
 # yolov3-pytorch
 
-YOLOV3 implementation in PyTorch
+YOLOV3 implementation in PyTorch. This repo borrows heavily from https://github.com/eriklindernoren/PyTorch-YOLOv3. Not really intended to be used for anything other than educational purposes.
 
 ### How to use
 
@@ -10,7 +10,7 @@ detect.py:
 from model.yolov3 import YOLOV3
 from utils.general import read_cfg
 
-im_to_detect = 'street.jpg'
+im_to_detect = 'samples/street.jpg'
 
 cfg = read_cfg('cfg/yolov3.cfg')
 yolo = YOLOV3(cfg)
