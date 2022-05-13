@@ -44,39 +44,6 @@ class YoloHead(nn.Module):
         self.no = self.num_classes + 5  # number of outputs per anchor
         self.grid = torch.zeros(1)  # TODO
 
-    def forward(self, x):
-
-        n_b = x.shape[-1]
-        bs = x.shape[0]
-
-        # reshape to (3, x, x, 85)
-        anchor_mask = torch.ones((1, 3, 2, n_b, n_b))
-        for i in range(3):
-            anchor_mask[:, i, 0, :, :] = self.anchors[i][0]
-            anchor_mask[:, i, 1, :, :] = self.anchors[i][1]
-
-        grid_y, grid_x = torch.meshgrid(
-            [torch.arange(n_b), torch.arange(n_b)], indexing='ij')
-
-        grid_x = grid_x.view(1, 1, 1, n_b,
-                             n_b)
-        grid_x = grid_y.view(1, 1, 1, n_b,
-                             n_b)
-
-        x = x.view(bs, 3, 85, n_b, n_b)
-        x[:, :, 0, :, :] = (torch.sigmoid(x[:, :, 0, :, :]) + grid_x) * 32
-        x[:, :, 1, :, :] = (torch.sigmoid(x[:, :, 1, :, :]) + grid_y) * 32
-        x[:, :, 2:4, :, :] = torch.exp(x[:, :, 2:4, :, :]) * anchor_mask
-        x[:, :, 4:, :, :] = x[:, :, 4:, :, :].sigmoid()
-
-        x = x.view(bs, 255, n_b, n_b)
-
-        print(no)
-        x = x.view(1, n_b * n_b * 3, no)
-        print(x.shape)
-        return x
-    """
-
     # some code borrowed from https://github.com/eriklindernoren/PyTorch-YOLOv3
     def forward(self, x, img_size=320):
 
@@ -99,9 +66,9 @@ class YoloHead(nn.Module):
         x = x.view(bs, -1, 85)
 
         return x
-    """
 
-    def _make_grid(self, nx=20, ny=20):
+    @staticmethod
+    def _make_grid(nx=20, ny=20):
         yv, xv = torch.meshgrid(
             [torch.arange(ny), torch.arange(nx)], indexing='ij')
         return torch.stack((xv, yv), 2).view((1, 1, ny, nx, 2)).float()
@@ -391,8 +358,6 @@ class YOLOV3(nn.Module):
                 conv_shape_in, conv_shape_out, 1, 1, bias=False)
 
         self.layers = nn.Sequential(*layers)
-
-        print("this is done")
 
     def summary(self):
         for i, layer in enumerate(self.layers):

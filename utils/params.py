@@ -1,6 +1,6 @@
 ############### MODEL PARAMS ################
 
-label_map = {
+label_map = [
     'background',
     'person',
     'bicycle',
@@ -82,4 +82,4 @@ label_map = {
     'teddy bear'
     'hair drier',
     'toothbrush',
-}
+]
