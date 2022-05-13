@@ -5,15 +5,11 @@ import os
 import numpy as np
 import os
 
-
-def threshold(input: list):
-    """Threshold object detections
-
-    Args:
-        input (list): list of object detection heads
-    """
-
-    pass
+from PIL import Image
+from torchvision import transforms
+from utils.general import non_max_suppression
+from utils.params import label_map
+import cv2
 
 
 def generate_conv(layer: dict, in_channels, bias=False):
@@ -92,15 +88,16 @@ class YoloShortcut(nn.Module):
         return x
 
 
+"""
+
 def read_config(cfg: dict):
-    """_summary_
+    _summary_
 
    Args:
         cfg(dict): config input from read_cfg
 
     Returns:
         layers: a list of PyTorch layers representing the model. Is converted later to a torch.nn.Sequential
-    """
 
     i = 1
     l = 0
@@ -215,6 +212,7 @@ def read_config(cfg: dict):
             conv_shape_in, conv_shape_out, 1, 1, bias=False)
 
     return layers
+"""
 
 
 class YOLOV3(nn.Module):
@@ -474,3 +472,75 @@ class YOLOV3(nn.Module):
                 yolo_outputs.append(x)
 
         return yolo_outputs
+
+    def detect(self, img_name, preview=False, save_img=False):
+        """detect objects in image, return a list of detections. Optionally also show a cv2 preview of the image and/or save the image with bounding boxes applied.
+
+        Args:
+            img (_type_): _description_
+            preview (bool, optional): _description_. Defaults to False.
+            save_img (bool, optional): _description_. Defaults to False.
+        """        ""
+
+        img = Image.open(img_name)
+
+        t = transforms.Compose([
+            transforms.Resize((320, 320)),
+            transforms.ToTensor()
+        ])
+
+        img = t(img)
+
+        img = img.unsqueeze(0)
+
+        # yolo.detect('messi.jpg', preview=True, save_img=True)
+
+        self.eval()
+
+        with torch.no_grad():
+
+            x = self(img)
+
+            for i in range(3):
+                x[i] = x[i].detach()
+
+            x = torch.cat([x[0], x[1], x[2]], dim=1)
+
+            x = non_max_suppression(x, 0.60, 0.6)[0]
+
+            # open the image in cv2
+            cv_im = cv2.imread(img_name)
+
+            if preview or save_img:
+
+                for det in x:
+                    x0, y0, x1, y1, conf, _cls = det
+
+                    cv_im = cv2.resize(cv_im, (320, 320))
+
+                    conf = round(float(conf), 4)
+
+                    x0 = int(x0)
+                    y0 = int(y0)
+                    x1 = int(x1)
+                    y1 = int(y1)
+                    _cls = int(_cls)
+
+                    # (x1, y1), (0, 255, 0), 2)
+                    cv2.rectangle(cv_im, (x0, y0), (x1, y1), (0, 255, 0), 1)
+                    cv2.putText(cv_im, f'{label_map[_cls]} {conf}', (x0, y0 - 5),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0))
+
+                if preview:
+                    cv2.imshow('(tap any key to destroy)', cv_im)
+                    cv2.waitKey(0)
+                if save_img:
+                    if 'jpg' in img_name:
+                        new_name = img_name.replace('.jpg', '_detections.jpg')
+                    elif 'jpeg' in img_name:
+                        new_name = img_name.replace(
+                            '.jpeg', '_detections.jpeg')
+                    cv2.imwrite(os.path.join(
+                        os.getcwd(), 'detections', new_name), cv_im)
+
+            return x
