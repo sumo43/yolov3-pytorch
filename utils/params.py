@@ -1,7 +1,6 @@
 ############### MODEL PARAMS ################
 
 label_map = [
-    'background',
     'person',
     'bicycle',
     'car',
