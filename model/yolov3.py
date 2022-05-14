@@ -13,19 +13,15 @@ import cv2
 
 
 def generate_conv(layer: dict, in_channels, bias=False):
-
     filters = layer['filters']
     stride = layer['stride']
     pad = layer['pad']
     kernel_size = layer['size']
     activation = layer['activation']
-
     if kernel_size == 1:
         pad = 0
-
     conv = nn.Conv2d(in_channels, filters,
                      kernel_size=kernel_size, stride=stride, padding=pad, bias=bias)
-
     return conv
 
 
@@ -55,7 +51,6 @@ class YoloHead(nn.Module):
             anchor_mask[:, i, :, :, 1] = self.anchors[i][1]
 
         self.grid = self._make_grid(nx, ny)
-
         x[..., 0:2] = (x[..., 0:2].sigmoid() + self.grid) * stride  # xy
         x[..., 2:4] = torch.exp(x[..., 2:4]) * anchor_mask  # wh
         x[..., 4:] = x[..., 4:].sigmoid()
@@ -72,7 +67,6 @@ class YoloHead(nn.Module):
 
 class YoloRoute(nn.Module):
     def __init__(self):
-
         super(YoloRoute, self).__init__()
 
     def forward(self, x):
@@ -81,7 +75,6 @@ class YoloRoute(nn.Module):
 
 class YoloShortcut(nn.Module):
     def __init__(self):
-
         super(YoloShortcut, self).__init__()
 
     def forward(self, x):
@@ -102,9 +95,7 @@ class YOLOV3(nn.Module):
         batch_size, subdivs, width, height, channels = int(params['batch']), int(
             params['subdivisions']), int(params['width']), int(params['height']), int(params['channels'])
         momentum, decay = float(params['momentum']), float(params['decay'])
-
         cfg_layers = cfg['layers']
-
         self.yolo_layers = []
 
         i = 1
@@ -115,18 +106,14 @@ class YOLOV3(nn.Module):
         prev_conv_inc = None
 
         self.process_outputs = False
-
         self.shortcuts = dict()
         saved_x = dict()
-
         self.routes = dict()
         self.single_routes = dict()
 
         for layer in cfg['layers']:
             if layer['name'] == 'convolutional':
-
                 bias = True
-
                 if 'batch_normalize' in layer.keys():
                     bias = False
 
@@ -137,7 +124,6 @@ class YOLOV3(nn.Module):
 
                 curr_layer = []
                 curr_layer.append(conv_layer)
-
                 prev_conv_inc = layer['filters']
 
                 if 'batch_normalize' in layer.keys() and layer['batch_normalize'] == 1:
@@ -148,21 +134,19 @@ class YOLOV3(nn.Module):
                     relu_layer = nn.LeakyReLU(0.1)
                     curr_layer.append(relu_layer)
                     no_bias = False
+
                 elif layer['activation'] == 'relu':
                     relu_layer = nn.ReLU()
                     curr_layer.append(relu_layer)
 
                 curr_layer = nn.Sequential(*curr_layer)
-
                 layers.append(curr_layer)
                 i += 1
                 l += 1
 
             elif layer['name'] == 'yolo':
-
                 layers.append(YoloHead(layer))
                 self.yolo_layers.append(i - 1)
-
                 i += 1
                 l += 1
 
@@ -186,15 +170,12 @@ class YOLOV3(nn.Module):
                 i += 1
 
             elif layer['name'] == 'route':
-
                 # the route has 2 layers, we concatenate
                 if isinstance(layer['layers'], tuple):
                     _from = int(layer['layers'][0])
                     if _from < 1:
                         _from = i + _from
-
                     _to = int(layer['layers'][1])
-
                     self.routes[_to] = _from
 
                 else:
@@ -202,12 +183,10 @@ class YOLOV3(nn.Module):
                     if _from < 1:
                         _from = i + _from
                     _to = i
-
                     _from -= 1
                     _to -= 1
 
                     self.single_routes[_from] = _to
-
                 layers.append(YoloRoute())
                 i += 1
 
@@ -247,7 +226,6 @@ class YOLOV3(nn.Module):
 
         sd = self.state_dict()
         sd_keys = list(sd.keys())
-
         len_sd = len(sd_keys)
 
         with open(weights_file, 'rb') as f:
@@ -257,24 +235,16 @@ class YOLOV3(nn.Module):
         ptr = 0
 
         for layer in self.layers:
-
             layer_type = type(layer)
-
             if isinstance(layer, torch.nn.modules.container.Sequential):
-
                 # batch norm OR conv bias
                 # then weights
-
                 conv = layer[0]
-
                 if len(layer) > 1:
-
                     bn = layer[1]
                     bs = bn.bias.data.shape.numel()
-
                     bn.bias.data = torch.from_numpy(weights[ptr:ptr+bs])
                     ptr += bs
-
                     # beta (weight)
                     bn.weight.data = torch.from_numpy(weights[ptr:ptr+bs])
                     ptr += bs
@@ -299,23 +269,19 @@ class YOLOV3(nn.Module):
                 conv.weight.data = torch.from_numpy(
                     weights[ptr:ptr+wsz]).view_as(conv.weight.data)
                 ptr += wsz
-
         print(f'weights loaded: {ptr}')
 
     def forward(self, x):
-
         saved_x_shortcuts = dict()
         saved_x_routes = dict()
         saved_single_x_routes = dict()
         yolo_outputs = []
-
         shortcuts = 0
         routes = 0
         single_routes = 0
         routes = 0
 
         for i, layer in enumerate(self.layers):
-
             if type(layer) == torch.nn.Sequential or type(layer) == torch.nn.Upsample:
                 x = layer(x)
 
@@ -355,51 +321,34 @@ class YOLOV3(nn.Module):
             preview (bool, optional): _description_. Defaults to False.
             save_img (bool, optional): _description_. Defaults to False.
         """        ""
-
         img = Image.open(img_name)
-
         t = transforms.Compose([
             transforms.Resize((320, 320)),
             transforms.ToTensor()
         ])
-
         img = t(img)
-
         img = img.unsqueeze(0)
 
         # yolo.detect('messi.jpg', preview=True, save_img=True)
-
         self.eval()
-
         with torch.no_grad():
-
             x = self(img)
-
             for i in range(3):
                 x[i] = x[i].detach()
-
             x = torch.cat([x[0], x[1], x[2]], dim=1)
-
             x = non_max_suppression(x, 0.60, 0.6)[0]
-
             # open the image in cv2
             cv_im = cv2.imread(img_name)
-
             if preview or save_img:
-
                 for det in x:
                     x0, y0, x1, y1, conf, _cls = det
-
                     cv_im = cv2.resize(cv_im, (320, 320))
-
                     conf = round(float(conf), 4)
-
                     x0 = int(x0)
                     y0 = int(y0)
                     x1 = int(x1)
                     y1 = int(y1)
                     _cls = int(_cls)
-
                     # (x1, y1), (0, 255, 0), 2)
                     cv2.rectangle(cv_im, (x0, y0), (x1, y1), (0, 255, 0), 1)
                     cv2.putText(cv_im, f'{label_map[_cls]} {conf}', (x0, y0 - 5),
