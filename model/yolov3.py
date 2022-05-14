@@ -10,7 +10,7 @@ from torchvision import transforms
 from utils.general import non_max_suppression
 from utils.params import label_map
 import cv2
-
+import math
 
 def generate_conv(layer: dict, in_channels, bias=False):
     filters = layer['filters']
@@ -26,20 +26,20 @@ def generate_conv(layer: dict, in_channels, bias=False):
 
 
 class YoloHead(nn.Module):
-    def __init__(self, info: dict):
+    def __init__(self, head_cfg: dict):
 
         super(YoloHead, self).__init__()
 
-        self.anchors = [info['anchors'][i] for i in info['mask']]
-        self.num_anchors = 3
-        self.num_classes = 80
+        self.anchors = [head_cfg['anchors'][i] for i in head_cfg['mask']]
+        self.num_anchors = len(head_cfg['mask'])
+        self.num_classes = head_cfg['classes']
         self.no = self.num_classes + 5  # number of outputs per anchor
         self.grid = torch.zeros(1)  # TODO
 
     # some code borrowed from https://github.com/eriklindernoren/PyTorch-YOLOv3
-    def forward(self, x, img_size=320):
+    def forward(self, x, img_shape=(416, 416)):
 
-        stride = img_size // x.shape[2]
+        stride = img_shape[0] // x.shape[2]
         self.stride = stride
         bs, _, ny, nx = x.shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
         x = x.view(bs, 3, 85, ny,
@@ -82,7 +82,6 @@ class YoloShortcut(nn.Module):
 
 class YOLOV3(nn.Module):
     def __init__(self, cfg):
-        # input size = (256, 256)
         super(YOLOV3, self).__init__()
         self.training = False
         self.read_config(cfg)
@@ -281,6 +280,9 @@ class YOLOV3(nn.Module):
         single_routes = 0
         routes = 0
 
+        self.image_shape = x.shape[2:3]
+        print(x.shape)
+
         for i, layer in enumerate(self.layers):
             if type(layer) == torch.nn.Sequential or type(layer) == torch.nn.Upsample:
                 x = layer(x)
@@ -308,7 +310,7 @@ class YOLOV3(nn.Module):
                 shape = x.shape
 
             if i in self.yolo_layers:
-                x = layer(x)
+                x = layer(x, self.image_shape)
                 yolo_outputs.append(x)
 
         return yolo_outputs
@@ -322,8 +324,12 @@ class YOLOV3(nn.Module):
             save_img (bool, optional): _description_. Defaults to False.
         """        ""
         img = Image.open(img_name)
+        width, height = img.size
+        new_width = int(math.ceil(width / 32) * 32)
+        new_height = int(math.ceil(height / 32) * 32)
+        # why are u like this torchvision
         t = transforms.Compose([
-            transforms.Resize((320, 320)),
+            transforms.Resize((new_height, new_width)),
             transforms.ToTensor()
         ])
         img = t(img)
@@ -336,13 +342,15 @@ class YOLOV3(nn.Module):
             for i in range(3):
                 x[i] = x[i].detach()
             x = torch.cat([x[0], x[1], x[2]], dim=1)
-            x = non_max_suppression(x, 0.60, 0.6)[0]
+            x = non_max_suppression(x, 0.45, 0.25)[0]
             # open the image in cv2
             cv_im = cv2.imread(img_name)
+            cv_im = cv2.resize(cv_im, (new_width, new_height))
+
+            print(cv_im.shape)
             if preview or save_img:
                 for det in x:
                     x0, y0, x1, y1, conf, _cls = det
-                    cv_im = cv2.resize(cv_im, (320, 320))
                     conf = round(float(conf), 4)
                     x0 = int(x0)
                     y0 = int(y0)
