@@ -281,7 +281,6 @@ class YOLOV3(nn.Module):
         routes = 0
 
         self.image_shape = x.shape[2:3]
-        print(x.shape)
 
         for i, layer in enumerate(self.layers):
             if type(layer) == torch.nn.Sequential or type(layer) == torch.nn.Upsample:
@@ -347,7 +346,6 @@ class YOLOV3(nn.Module):
             cv_im = cv2.imread(img_name)
             cv_im = cv2.resize(cv_im, (new_width, new_height))
 
-            print(cv_im.shape)
             if preview or save_img:
                 for det in x:
                     x0, y0, x1, y1, conf, _cls = det
@@ -366,6 +364,7 @@ class YOLOV3(nn.Module):
                     cv2.imshow('(tap any key to destroy)', cv_im)
                     cv2.waitKey(0)
                 if save_img:
+                    img_name = img_name.replace('samples/', '')
                     if 'jpg' in img_name:
                         new_name = img_name.replace('.jpg', '_detections.jpg')
                     elif 'jpeg' in img_name:

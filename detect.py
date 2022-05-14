@@ -9,4 +9,4 @@ yolo = YOLOV3(cfg)
 yolo.summary()
 yolo.load_weights('weights/yolov3.weights')
 
-dets = yolo.detect(im_to_detect, preview=True, save_img=True)
+dets = yolo.detect(im_to_detect, preview=False, save_img=True)
