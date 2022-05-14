@@ -12,6 +12,108 @@ from utils.params import label_map
 import cv2
 import math
 
+
+# training the model
+# - is the model training in cpu or gpu mode?
+# - switch the model to train
+
+def train():
+    torch.cuda.empty_cache()
+
+    model = YOLOV3()
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
+    loss = torch.nn.MSELoss()
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-5)
+
+    collate_fn = lambda x: ([_x[0] for _x in x], [[torch.tensor((ann['category_id'], *ann['bbox'])) for ann in _x[1]] for _x in x])
+
+    train_dl = torch.utils.data.DataLoader(train_ds, batch_size=1, shuffle=True, collate_fn=collate_fn)
+    val_dl = torch.utils.data.DataLoader(val_ds, batch_size = 1, shuffle=True)
+
+    train(model, loss, optimizer, 10, train_dl, val_dl, 100)
+
+def train_model(model, loss_fn, optimizer, epochs, train_dl, valid_dl, num_iterations=None):
+
+    batch_size = train_dl.batch_size
+
+    # constants for uneven gradient
+    l_coord = 5
+    l_noobj = 0.5
+
+    for epoch in range(epochs):
+
+        avg_loss = 0
+        acc = 0
+
+        val_avg_loss = 0
+        val_acc = 0
+        batch_num = 0
+
+        for batch in tqdm(train_dl):
+
+            x, bboxes = batch
+            ### DATA TRANSFORMS AND PROCESSING
+            x = x[0]
+            bboxes = bboxes[0]
+            rescale_factor_w = 320 / x.size[0]
+            rescale_factor_h = 320 / x.size[1]
+            x = x.resize((320, 320))
+            x = transform1(x)
+            x = transform2(x)
+
+            y_pred_1, y_pred_2, y_pred_3 = model(x.unsqueeze(0).to('cuda:0'))
+            y_1 = torch.zeros((1, 255, 10, 10))
+            y_2 = torch.zeros((1, 255, 20, 20))
+            y_3 = torch.zeros((1, 255, 40, 40))
+
+            for bounding_box in bboxes:
+
+                # scale 1
+                # only the best prior is used for each bounding box for each detector scale
+
+                # some of these get converted to ints when reading bboxes, which makes following op throw an error
+                # xc, yc, w, h
+
+                bounding_box = bounding_box.type(torch.float32)
+                bounding_box[1] *= rescale_factor_w
+                bounding_box[2] *= rescale_factor_h
+                bounding_box[3] *= rescale_factor_w
+                bounding_box[4] *= rescale_factor_h
+
+                build_groundtruth(y_1, torch.clone(bounding_box), 0, 32)
+                build_groundtruth(y_2, torch.clone(bounding_box), 1, 16)
+                build_groundtruth(y_3, torch.clone(bounding_box), 2, 8)
+
+            optimizer.zero_grad()
+            loss =  loss_fn(y_1.to('cuda:0'), y_pred_1)
+            #loss += loss_fn(y_2.to('cuda:0'), y_pred_2)
+            3loss += loss_fn(y_3.to('cuda:0'), y_pred_3)
+
+            loss.backward()
+            optimizer.step()
+
+            avg_loss += loss.item() / batch_size
+
+            print(avg_loss)
+
+            #print(loss.item())
+
+            batch_num += 1
+            if batch_num > num_iterations:
+                break
+
+        avg_loss /= (len(train_dl) * batch_size)
+        #acc /= (len(train_dl) * batch_size)
+
+        val_avg_loss /= (len(valid_dl) * batch_size)
+        #val_acc /= (len(valid_dl) * batch_size)
+
+
+        print(f'epoch: {epoch} loss: {avg_loss} acc: {acc} val_loss: {val_avg_loss} val_acc: {val_acc}')
+
+
 def generate_conv(layer: dict, in_channels, bias=False):
     filters = layer['filters']
     stride = layer['stride']
