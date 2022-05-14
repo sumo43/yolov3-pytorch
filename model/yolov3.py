@@ -358,7 +358,7 @@ class YOLOV3(nn.Module):
                     # (x1, y1), (0, 255, 0), 2)
                     cv2.rectangle(cv_im, (x0, y0), (x1, y1), (0, 255, 0), 1)
                     cv2.putText(cv_im, f'{label_map[_cls]} {conf}', (x0, y0 - 5),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0))
+                                cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 255, 0))
 
                 if preview:
                     cv2.imshow('(tap any key to destroy)', cv_im)
