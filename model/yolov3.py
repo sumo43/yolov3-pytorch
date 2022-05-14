@@ -87,144 +87,18 @@ class YoloShortcut(nn.Module):
     def forward(self, x):
         return x
 
-
-"""
-
-def read_config(cfg: dict):
-    _summary_
-
-   Args:
-        cfg(dict): config input from read_cfg
-
-    Returns:
-        layers: a list of PyTorch layers representing the model. Is converted later to a torch.nn.Sequential
-
-    i = 1
-    l = 0
-
-    layers = []
-    im_channels = 3
-    prev_conv_inc = None
-
-    self.process_outputs = False
-
-    self.shortcuts = dict()
-    saved_x = dict()
-
-    self.routes = dict()
-    self.single_routes = dict()
-
-    for layer in cfg['layers']:
-        if layer['name'] == 'convolutional':
-
-            bias = True
-
-            if 'batch_normalize' in layer.keys():
-                bias = False
-
-            if prev_conv_inc == None:
-                conv_layer = generate_conv(layer, im_channels, bias=bias)
-            else:
-                conv_layer = generate_conv(layer, prev_conv_inc, bias=bias)
-
-            curr_layer = []
-            curr_layer.append(conv_layer)
-
-            prev_conv_inc = layer['filters']
-
-            if 'batch_normalize' in layer.keys() and layer['batch_normalize'] == 1:
-                bn_layer = nn.BatchNorm2d(layer['filters'])
-                curr_layer.append(bn_layer)
-
-            if layer['activation'] == 'leaky':
-                relu_layer = nn.LeakyReLU()
-                curr_layer.append(relu_layer)
-                no_bias = False
-            elif layer['activation'] == 'relu':
-                relu_layer = nn.ReLU()
-                curr_layer.append(relu_layer)
-
-            curr_layer = nn.Sequential(*curr_layer)
-
-            layers.append(curr_layer)
-            i += 1
-            l += 1
-
-        elif layer['name'] == 'upsample':
-            upsample_layer = torch.nn.Upsample(scale_factor=2)
-            layers.append(upsample_layer)
-            i += 1
-            l += 1
-
-        elif layer['name'] == 'shortcut':
-            _from = int(layer['from'])
-            if _from < 1:
-                _from = i + _from
-            _to = i
-
-            self.shortcuts[_from] = _to
-            layers.append(YoloShortcut())
-            i += 1
-
-        elif layer['name'] == 'route':
-
-            # the route has 2 layers, we concatenate
-            if isinstance(layer['layers'], list):
-                _from = int(layer['layers'][0])
-                if _from < 1:
-                    _from = i + _from
-                _to = int(layer['layers'][1])
-
-                self.routes[_to] = _from + 2
-
-            else:
-                _from = int(layer['layers'])
-                if _from < 1:
-                    _from = i + _from
-                _to = i
-
-                self.single_routes[_from] = _to + 2
-
-            layers.append(YoloRoute())
-            i += 1
-
-        elif layer['name'] == 'yolo':
-
-            layers.append(YoloHead())
-            self.yolo_layers.append(i)
-            i += 1
-            l += 1
-
-    for i in self.routes.keys():
-        _from = self.routes[i]
-        conv_shape_in = layers[i - 1][0].weight.shape[1] + \
-            layers[_from - 2][0].weight.shape[0] * 2
-        conv_shape_out = layers[_from - 2][0].weight.shape[0]
-        layers[_from + 1][0] = nn.Conv2d(conv_shape_in,
-                                         conv_shape_out, 1, 1, bias=False)
-
-    for i in self.single_routes.keys():
-
-        _from = self.single_routes[i]
-        conv_shape_in = layers[i][0].weight.shape[1]
-        conv_shape_out = layers[_from][0].weight.shape[0]
-        layers[_from][0] = nn.Conv2d(
-            conv_shape_in, conv_shape_out, 1, 1, bias=False)
-
-    return layers
-"""
-
-
 class YOLOV3(nn.Module):
     def __init__(self, cfg):
         # input size = (256, 256)
         super(YOLOV3, self).__init__()
-
         self.training = False
-
+        self.read_config(cfg)
+    
+    def read_config(self, cfg):
         # get model metaparameters from cfg
         params = cfg['params']
-
+        
+        # were not really using these right now
         batch_size, subdivs, width, height, channels = int(params['batch']), int(
             params['subdivisions']), int(params['width']), int(params['height']), int(params['channels'])
         momentum, decay = float(params['momentum']), float(params['decay'])
