@@ -11,6 +11,8 @@ from utils.general import non_max_suppression
 from utils.params import label_map
 import cv2
 import math
+import torchvision
+from tqdm import tqdm
 
 
 # training the model
@@ -24,9 +26,6 @@ TRAIN_CAPTIONS_PATH = os.path.join(BASE_PATH, 'captions_train2017.json')
 VAL_CAPTIONS_PATH = os.path.join(BASE_PATH, 'captions_val2017.json')
 TRAIN_ANNOTATIONS_PATH = os.path.join(BASE_PATH, 'instances_train2017.json')
 VAL_ANNOTATIONS_PATH = os.path.join(BASE_PATH, 'instances_train2017.json')
-
-
-
 
 
 def generate_conv(layer: dict, in_channels, bias=False):
@@ -103,6 +102,9 @@ class YOLOV3(nn.Module):
         super(YOLOV3, self).__init__()
         self.training = False
         self.read_config(cfg)
+
+        self.device = torch.device(
+            "cuda:0" if torch.cuda.is_available() else "cpu")
 
     def read_config(self, cfg):
         # get model metaparameters from cfg
@@ -332,6 +334,11 @@ class YOLOV3(nn.Module):
 
         return yolo_outputs
 
+    def get_new_dims(self, width, height):
+        new_width = int(math.ceil(width / 32) * 32)
+        new_height = int(math.ceil(height / 32) * 32)
+        return new_width, new_height
+
     def detect(self, img_name, preview=False, save_img=False):
         """detect objects in image, return a list of detections. Optionally also show a cv2 preview of the image and/or save the image with bounding boxes applied.
 
@@ -342,14 +349,17 @@ class YOLOV3(nn.Module):
         """        ""
         img = Image.open(img_name)
         width, height = img.size
-        new_width = int(math.ceil(width / 32) * 32)
-        new_height = int(math.ceil(height / 32) * 32)
-        # why are u like this torchvision
-        t = transforms.Compose([
+
+        new_width, new_height = self.get_new_dims(width, height)
+
+        self.transforms = transforms.Compose([
             transforms.Resize((new_height, new_width)),
             transforms.ToTensor()
         ])
-        img = t(img)
+
+        # why are u like this torchvision
+
+        img = self.transforms(img)
         img = img.unsqueeze(0)
 
         # yolo.detect('messi.jpg', preview=True, save_img=True)
@@ -393,45 +403,34 @@ class YOLOV3(nn.Module):
 
             return x
 
-    def train(self, epochs, train_ds_location, valid_ds_location, finetune=True):
+    def train(self, train_folder, annotations_folder, valid_ds_location=None, epochs=15, finetune=True):
         # we use small dataset for now
         num_train_images = 100
-        num_val_images = 100
+        # num_val_images = 100
+
+        train_ds = torchvision.datasets.coco.CocoDetection(
+            train_folder, os.path.join(annotations_folder, 'instances_val2017.json'))
+
+        # val_ds = torchvision.datasets.coco.CocoDetection('data/val2017', 'data/annotations/instances_val2017.json')
 
         torch.cuda.empty_cache()
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.to(device)
-        loss = torch.nn.MSELoss()
-
-        optimizer = torch.optim.SGD(model.parameters(), lr=1e-5)
+        self.to(self.device)
+        loss_fn = torch.nn.MSELoss()
+        optimizer = torch.optim.SGD(self.parameters(), lr=1e-5)
 
         def collate_fn(x): return ([_x[0] for _x in x], [[torch.tensor(
-            (ann['category_id'], *ann['bbox'])) for ann in _x[1]] for _x in x])
+            (*ann['bbox'], ann['category_id'])) for ann in _x[1]] for _x in x])
         train_dl = torch.utils.data.DataLoader(
             train_ds, batch_size=1, shuffle=True, collate_fn=collate_fn)
-        val_dl = torch.utils.data.DataLoader(
-            val_ds, batch_size=1, shuffle=True)
-        #train(model, loss, optimizer, 10, train_dl, val_dl, 100)
 
-
-        """
-
-        loss = torch.nn.MSELoss()
-        optimizer = torch.optim.SGD(model.parameters(), lr=1e-5)
-
-        collate_fn = lambda x: ([_x[0] for _x in x], [[torch.tensor((ann['category_id'], *ann['bbox'])) for ann in _x[1]] for _x in x])
-
-        train_dl = torch.utils.data.DataLoader(train_ds, batch_size=1, shuffle=True, collate_fn=collate_fn)
-        val_dl = torch.utils.data.DataLoader(val_ds, batch_size = 1, shuffle=True)
-
-        train(model, loss, optimizer, 10, train_dl, val_dl, 100)
-        """
-
+        # val_dl = torch.utils.data.DataLoader(
+        #    val_ds, batch_size=1, shuffle=True)
+        self.train_model(loss_fn, optimizer, 10, train_dl, 100)
 
         return
-    
-    def train_model(model, loss_fn, optimizer, epochs, train_dl, valid_dl, num_iterations=None):
-    
+
+    def train_model(self, loss_fn, optimizer, epochs, train_dl, valid_dl=None, num_iterations=None):
+
         batch_size = train_dl.batch_size
 
         # constants for uneven gradient
@@ -442,7 +441,6 @@ class YOLOV3(nn.Module):
 
             avg_loss = 0
             acc = 0
-
             val_avg_loss = 0
             val_acc = 0
             batch_num = 0
@@ -453,30 +451,40 @@ class YOLOV3(nn.Module):
                 # DATA TRANSFORMS AND PROCESSING
                 x = x[0]
                 bboxes = bboxes[0]
-                rescale_factor_w = 320 / x.size[0]
-                rescale_factor_h = 320 / x.size[1]
-                x = x.resize((320, 320))
-                x = transform1(x)
-                x = transform2(x)
+                bounding_box = bboxes[0]
 
-                y_pred_1, y_pred_2, y_pred_3 = model(x.unsqueeze(0).to('cuda:0'))
+                width, height = x.size
+
+                new_width, new_height = self.get_new_dims(width, height)
+
+                rescale_factor_w = new_width / width
+                rescale_factor_h = new_height / height
+
+                t = transforms.Compose([
+                    transforms.Resize((new_height, new_width)),
+                ])
+
+                x = t(x)
+
+                y_pred_1, y_pred_2, y_pred_3 = self(
+                    x.unsqueeze(0)
+                )
+
                 y_1 = torch.zeros((1, 255, 10, 10))
                 y_2 = torch.zeros((1, 255, 20, 20))
                 y_3 = torch.zeros((1, 255, 40, 40))
 
                 for bounding_box in bboxes:
 
+                    bounding_box[0] *= rescale_factor_w
+                    bounding_box[1] *= rescale_factor_h
+                    bounding_box[2] *= rescale_factor_w
+                    bounding_box[3] *= rescale_factor_h
+
                     # scale 1
                     # only the best prior is used for each bounding box for each detector scale
-
                     # some of these get converted to ints when reading bboxes, which makes following op throw an error
                     # xc, yc, w, h
-
-                    bounding_box = bounding_box.type(torch.float32)
-                    bounding_box[1] *= rescale_factor_w
-                    bounding_box[2] *= rescale_factor_h
-                    bounding_box[3] *= rescale_factor_w
-                    bounding_box[4] *= rescale_factor_h
 
                     build_groundtruth(y_1, torch.clone(bounding_box), 0, 32)
                     build_groundtruth(y_2, torch.clone(bounding_box), 1, 16)
@@ -484,7 +492,7 @@ class YOLOV3(nn.Module):
 
                 optimizer.zero_grad()
                 loss = loss_fn(y_1.to('cuda:0'), y_pred_1)
-                #loss += loss_fn(y_2.to('cuda:0'), y_pred_2)
+                # loss += loss_fn(y_2.to('cuda:0'), y_pred_2)
                 loss += loss_fn(y_3.to('cuda:0'), y_pred_3)
 
                 loss.backward()
@@ -501,12 +509,10 @@ class YOLOV3(nn.Module):
                     break
 
             avg_loss /= (len(train_dl) * batch_size)
-            #acc /= (len(train_dl) * batch_size)
+            # acc /= (len(train_dl) * batch_size)
 
             val_avg_loss /= (len(valid_dl) * batch_size)
-            #val_acc /= (len(valid_dl) * batch_size)
+            # val_acc /= (len(valid_dl) * batch_size)
 
             print(
                 f'epoch: {epoch} loss: {avg_loss} acc: {acc} val_loss: {val_avg_loss} val_acc: {val_acc}')
-
-        

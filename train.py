@@ -1,4 +1,4 @@
-from model.yolov3 import YOLOV3, train
+from model.yolov3 import YOLOV3
 from utils.general import read_cfg
 
 im_to_detect = 'samples/street.jpg'
@@ -12,5 +12,4 @@ yolo.summary()
 yolo.load_weights('weights/yolov3.weights')
 
 # when you finetune, the model freezes the ResNet50 weights, and only trains the YOLO parts for faster training
-yolo.train(epochs=15, finetune=True)
-
+yolo.train('data/val2017', 'data/annotations', epochs=15, finetune=True)
