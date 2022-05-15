@@ -44,7 +44,7 @@ def threshold(output: np.array, thres=0.95):
             t = list(output[:, i, 5:].ravel())
 
         bboxes.append((x, y, w, h, conf, cls_idx))
-    print((a / output.shape[1]))
+    print(a / output.shape[1])
     return bboxes
 
 
