@@ -362,7 +362,6 @@ class YOLOV3(nn.Module):
         img = self.transforms(img)
         img = img.unsqueeze(0)
 
-        # yolo.detect('messi.jpg', preview=True, save_img=True)
         self.eval()
         with torch.no_grad():
             x = self(img)
@@ -467,13 +466,18 @@ class YOLOV3(nn.Module):
 
                 x = t(x)
 
-                y_pred_1, y_pred_2, y_pred_3 = self(
+                # most important part. Everything else is irrelevant
+                y = self(
                     x.unsqueeze(0)
                 )
 
-                y_1 = torch.zeros((1, 255, 10, 10))
-                y_2 = torch.zeros((1, 255, 20, 20))
-                y_3 = torch.zeros((1, 255, 40, 40))
+                y = torch.cat([y[0], y[1], y[2]], dim=1)
+
+                print(y.shape)
+
+                y_1 = torch.zeros((1, 3, 85, 10, 10))
+                y_2 = torch.zeros((1, 3, 85, 20, 20))
+                y_3 = torch.zeros((1, 3, 85, 40, 40))
 
                 for bounding_box in bboxes:
 
@@ -481,22 +485,23 @@ class YOLOV3(nn.Module):
                     bounding_box[1] *= rescale_factor_h
                     bounding_box[2] *= rescale_factor_w
                     bounding_box[3] *= rescale_factor_h
+                    bounding_box = bounding_box.type(torch.float32)
 
                     # scale 1
                     # only the best prior is used for each bounding box for each detector scale
                     # some of these get converted to ints when reading bboxes, which makes following op throw an error
                     # xc, yc, w, h
 
-                    bounding_box = bounding_box.type(torch.float32)
-
                     build_groundtruth(y_1, torch.clone(bounding_box), 0, 32)
                     build_groundtruth(y_2, torch.clone(bounding_box), 1, 16)
                     build_groundtruth(y_3, torch.clone(bounding_box), 2, 8)
 
                 optimizer.zero_grad()
-                loss = loss_fn(y_1.to('cuda:0'), y_pred_1)
-                # loss += loss_fn(y_2.to('cuda:0'), y_pred_2)
-                loss += loss_fn(y_3.to('cuda:0'), y_pred_3)
+                print(y_1.shape)
+                print(y_pred_1.shape)
+                loss = loss_fn(y_1.to(self.device), y_pred_1)
+                loss += loss_fn(y_2.to(self.device), y_pred_2)
+                loss += loss_fn(y_3.to(self.device), y_pred_3)
 
                 loss.backward()
                 optimizer.step()

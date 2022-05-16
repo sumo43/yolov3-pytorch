@@ -13,7 +13,7 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torch.utils.data.dataloader import default_collate
 from torchvision import transforms
-from params import priors
+from utils.params import priors, scales
 import math
 import time
 
@@ -24,23 +24,28 @@ def coco2yolo(label):
     yolo[2] = yolo[2] + (yolo[4] / 2)
     return yolo
 
+# input is (1, 3, n_out, n_grid, n_grid)
+
 
 def build_groundtruth(arr, bounding_box, scales_index, grid_size):
     bounding_box = coco2yolo(bounding_box)
     # bounding boxes in terms of cells. Should all be 0-10. For x and y, c_x and c_y are their floor
+    # grid_size is the size of each box in the grid
 
+    bounding_box[0] /= grid_size
     bounding_box[1] /= grid_size
     bounding_box[2] /= grid_size
     bounding_box[3] /= grid_size
-    bounding_box[4] /= grid_size
 
-    c_x = torch.floor(bounding_box[1]).type(torch.uint8)
-    c_y = torch.floor(bounding_box[2]).type(torch.uint8)
+    cell_x = torch.floor(bounding_box[1]).type(torch.uint8)
+    cell_y = torch.floor(bounding_box[2]).type(torch.uint8)
 
-    cl = bounding_box[0].type(torch.uint8)
+    cl = bounding_box[4].type(torch.uint8)
+
     #y_1[c_x][c_y][prior_num * 85]
 
-    # find the prior that has the highest IoU with the bounding box. We only use this prior for loss
+    # find the prior that has the highest IoU with the bounding box
+    # assume that the boxes are centered on top of each other
     best_iou = -1
     best_prior = priors[scales[0][0]]
 
