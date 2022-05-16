@@ -7,7 +7,7 @@ import os
 
 from PIL import Image
 from torchvision import transforms
-from utils.general import non_max_suppression, build_groundtruth
+from utils.general import non_max_suppression, build_groundtruth, coco2yolo
 from utils.params import label_map
 import cv2
 import math
@@ -467,19 +467,24 @@ class YOLOV3(nn.Module):
                 x = t(x)
 
                 # most important part. Everything else is irrelevant
-                y = self(
+                y_pred = self(
                     x.unsqueeze(0)
                 )
 
-                y = torch.cat([y[0], y[1], y[2]], dim=1)
+                y_pred = torch.cat([y_pred[0], y_pred[1], y_pred[2]], dim=1)
 
-                print(y.shape)
+                grid_x = math.ceil(new_width / 32)
+                grid_y = math.ceil(new_height / 32)
 
-                y_1 = torch.zeros((1, 3, 85, 10, 10))
-                y_2 = torch.zeros((1, 3, 85, 20, 20))
-                y_3 = torch.zeros((1, 3, 85, 40, 40))
+                # print(
+                # f'width: {new_width} height: {new_height} grid_x {grid_x} grid_y {grid_y}')
+                y_1 = torch.zeros((1, 3, grid_x, grid_y, 85))
+                y_2 = torch.zeros((1, 3, grid_x * 2, grid_y * 2, 85))
+                y_3 = torch.zeros((1, 3, grid_x * 4, grid_y * 4, 85))
 
                 for bounding_box in bboxes:
+
+                    bounding_box = coco2yolo(bounding_box)
 
                     bounding_box[0] *= rescale_factor_w
                     bounding_box[1] *= rescale_factor_h
@@ -496,9 +501,18 @@ class YOLOV3(nn.Module):
                     build_groundtruth(y_2, torch.clone(bounding_box), 1, 16)
                     build_groundtruth(y_3, torch.clone(bounding_box), 2, 8)
 
+                y_1 = y_1.view(1, -1, 85)
+                y_2 = y_2.view(1, -1, 85)
+                y_3 = y_3.view(1, -1, 85)
+
+                y = torch.cat([y_1, y_2, y_3], 1)
+
                 optimizer.zero_grad()
-                print(y_1.shape)
-                print(y_pred_1.shape)
+                # binary cross entropy loss for classes
+                loss = torch.nn.BCEWithLogitsLoss()(
+                    y[0, :, 5:], y_pred[0, :, 5:])
+
+                return
                 loss = loss_fn(y_1.to(self.device), y_pred_1)
                 loss += loss_fn(y_2.to(self.device), y_pred_2)
                 loss += loss_fn(y_3.to(self.device), y_pred_3)

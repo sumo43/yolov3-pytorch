@@ -6,7 +6,7 @@ im_to_detect = 'samples/street.jpg'
 cfg = read_cfg('cfg/yolov3.cfg')
 yolo = YOLOV3(cfg)
 
-yolo.summary()
+#yolo.summary()
 
 # finetune on pretrained weights
 yolo.load_weights('weights/yolov3.weights')

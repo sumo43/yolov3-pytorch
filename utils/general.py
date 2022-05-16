@@ -37,8 +37,15 @@ def build_groundtruth(arr, bounding_box, scales_index, grid_size):
     bounding_box[2] /= grid_size
     bounding_box[3] /= grid_size
 
-    cell_x = torch.floor(bounding_box[1]).type(torch.uint8)
-    cell_y = torch.floor(bounding_box[2]).type(torch.uint8)
+    if bounding_box[0] >= arr.shape[2]:
+        bounding_box[0] = arr.shape[2] - 1
+    if bounding_box[1] >= arr.shape[3]:
+        bounding_box[1] = arr.shape[3] - 1
+
+    cell_x = torch.floor(bounding_box[0]).type(torch.uint8)
+    cell_y = torch.floor(bounding_box[1]).type(torch.uint8)
+
+    #print(f'grid_sizeL {grid_size} cell_x: {cell_x} cell_y: {cell_y}')
 
     cl = bounding_box[4].type(torch.uint8)
 
@@ -59,30 +66,25 @@ def build_groundtruth(arr, bounding_box, scales_index, grid_size):
 
         prior_w, prior_h = prior
 
-        prior_coords = torch.tensor(
-            (bounding_box[1], bounding_box[2], prior_w, prior_h))
-        box_coords = bounding_box[1:5]
-
-        iou = compare_iou(prior_coords, box_coords)
-
-        print(iou)
+        iou = compare_iou(bounding_box, prior)
 
         if(iou > best_iou):
             best_iou = iou
             best_prior = prior
             best_prior_index = i
 
-    inv_x = inverse_sigmoid(bounding_box[1] - c_x)
-    inv_y = inverse_sigmoid(bounding_box[2] - c_y)
-    inv_w = torch.log(bounding_box[3] / best_prior[0])
-    inv_h = torch.log(bounding_box[4] / best_prior[1])
-    inv_o = iou
+    x = bounding_box[0]
+    y = bounding_box[1]
+    w = bounding_box[2]
+    h = bounding_box[3]
+    _cls = bounding_box[4]
 
-    arr[0][best_prior_index * 85][c_x][c_y] = inv_x
-    arr[0][best_prior_index * 85 + 1][c_x][c_y] = inv_y
-    arr[0][best_prior_index * 85 + 2][c_x][c_y] = inv_w
-    arr[0][best_prior_index * 85 + 3][c_x][c_y] = inv_h
-    arr[0][best_prior_index * 85 + 4][c_x][c_y] = iou
+    arr[:, best_prior_index, cell_x, cell_y, 0] = x
+    arr[:, best_prior_index, cell_x, cell_y, 1] = y
+    arr[:, best_prior_index, cell_x, cell_y, 2] = w
+    arr[:, best_prior_index, cell_x, cell_y, 3] = h
+    arr[:, best_prior_index, cell_x, cell_y, 4] = best_iou
+    arr[:, best_prior_index, cell_x, cell_y, 5 + _cls.type(torch.uint8)] = 1.
 
 
 def threshold(output: np.array, thres=0.95):
@@ -236,35 +238,16 @@ def xywh2xyxy(x):
     return y
 
 
-"""
-def xywh2xyxy(arr: torch.Tensor) -> torch.Tensor:
-    x0 = arr[0] - (arr[2] / 2)
-    y0 = arr[1] - (arr[3] / 2)
-    x1 = x0 + arr[2]
-    y1 = y0 + arr[3]
+def compare_iou(bounding_box, prior):
 
-    return torch.Tensor((x0, y0, x1, y1))
-"""
+    intersection_w = abs(bounding_box[2] - prior[0])
+    intersection_h = abs(bounding_box[3] - prior[1])
 
+    intersection_area = intersection_w * intersection_h
 
-def compare_iou(a, b):
+    union_area = (bounding_box[2] * bounding_box[3]) + (prior[0] * prior[1])
 
-    # a, b: xyxy
-    # this should not be negative
-
-    # this is stupid, fix later
-
-    i_w = abs(min(a[2], b[2]) - max(a[0], b[0]))
-    i_h = abs(min(a[1], b[1]) - max(a[3], b[3]))
-
-    i = i_w * i_h
-
-    a_1 = abs((a[1] - a[0]) * (a[3] - a[2]))
-    a_2 = abs((b[1] - b[0]) * (b[3] - b[2]))
-
-    u = a_1 + a_2
-
-    return abs(i / u)
+    return intersection_area / union_area
 
 # objectness scores are fucked. figure out how they are implemented in darkent
 
