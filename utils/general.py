@@ -49,12 +49,11 @@ def build_groundtruth(arr, bounding_box, scales_index, grid_size):
     best_iou = -1
     best_prior = priors[scales[0][0]]
 
-    i = 0
+    cell_x = int(cell_x)
+    cell_y = int(cell_y)
 
-    c_x = int(c_x)
-    c_y = int(c_y)
+    for i, prior_num in enumerate(scales[scales_index]):
 
-    for prior_num in scales[scales_index]:
         prior = priors[prior_num][0] / \
             grid_size, priors[prior_num][1] / grid_size
 
@@ -66,12 +65,12 @@ def build_groundtruth(arr, bounding_box, scales_index, grid_size):
 
         iou = compare_iou(prior_coords, box_coords)
 
+        print(iou)
+
         if(iou > best_iou):
             best_iou = iou
             best_prior = prior
             best_prior_index = i
-
-        i += 1
 
     inv_x = inverse_sigmoid(bounding_box[1] - c_x)
     inv_y = inverse_sigmoid(bounding_box[2] - c_y)
