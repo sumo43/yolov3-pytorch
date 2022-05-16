@@ -13,8 +13,72 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torch.utils.data.dataloader import default_collate
 from torchvision import transforms
+from params import priors
 import math
 import time
+
+
+def coco2yolo(label):
+    yolo = torch.clone(label)
+    yolo[1] = yolo[1] + (yolo[3] / 2)
+    yolo[2] = yolo[2] + (yolo[4] / 2)
+    return yolo
+
+
+def build_groundtruth(arr, bounding_box, scales_index, grid_size):
+    bounding_box = coco2yolo(bounding_box)
+    # bounding boxes in terms of cells. Should all be 0-10. For x and y, c_x and c_y are their floor
+
+    bounding_box[1] /= grid_size
+    bounding_box[2] /= grid_size
+    bounding_box[3] /= grid_size
+    bounding_box[4] /= grid_size
+
+    c_x = torch.floor(bounding_box[1]).type(torch.uint8)
+    c_y = torch.floor(bounding_box[2]).type(torch.uint8)
+
+    cl = bounding_box[0].type(torch.uint8)
+    #y_1[c_x][c_y][prior_num * 85]
+
+    # find the prior that has the highest IoU with the bounding box. We only use this prior for loss
+    best_iou = -1
+    best_prior = priors[scales[0][0]]
+
+    i = 0
+
+    c_x = int(c_x)
+    c_y = int(c_y)
+
+    for prior_num in scales[scales_index]:
+        prior = priors[prior_num][0] / \
+            grid_size, priors[prior_num][1] / grid_size
+
+        prior_w, prior_h = prior
+
+        prior_coords = torch.tensor(
+            (bounding_box[1], bounding_box[2], prior_w, prior_h))
+        box_coords = bounding_box[1:5]
+
+        iou = compare_iou(prior_coords, box_coords)
+
+        if(iou > best_iou):
+            best_iou = iou
+            best_prior = prior
+            best_prior_index = i
+
+        i += 1
+
+    inv_x = inverse_sigmoid(bounding_box[1] - c_x)
+    inv_y = inverse_sigmoid(bounding_box[2] - c_y)
+    inv_w = torch.log(bounding_box[3] / best_prior[0])
+    inv_h = torch.log(bounding_box[4] / best_prior[1])
+    inv_o = iou
+
+    arr[0][best_prior_index * 85][c_x][c_y] = inv_x
+    arr[0][best_prior_index * 85 + 1][c_x][c_y] = inv_y
+    arr[0][best_prior_index * 85 + 2][c_x][c_y] = inv_w
+    arr[0][best_prior_index * 85 + 3][c_x][c_y] = inv_h
+    arr[0][best_prior_index * 85 + 4][c_x][c_y] = iou
 
 
 def threshold(output: np.array, thres=0.95):
@@ -153,14 +217,6 @@ def get_gt(label: torch.Tensor, cell_x, cell_y, prior: tuple, scale=32) -> torch
     else:
         o = torch.log(_iou)
     return torch.tensor((*gt, o))
-
-
-def coco2yolo(label: torch.Tensor) -> torch.Tensor:
-    yolo = torch.clone(label)
-
-    yolo[1] = yolo[1] + (yolo[3] / 2)
-    yolo[2] = yolo[2] + (yolo[4] / 2)
-    return yolo
 
 
 def to_cpu(tensor):

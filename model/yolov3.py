@@ -7,7 +7,7 @@ import os
 
 from PIL import Image
 from torchvision import transforms
-from utils.general import non_max_suppression
+from utils.general import non_max_suppression, build_groundtruth
 from utils.params import label_map
 import cv2
 import math
@@ -462,6 +462,7 @@ class YOLOV3(nn.Module):
 
                 t = transforms.Compose([
                     transforms.Resize((new_height, new_width)),
+                    transforms.ToTensor()
                 ])
 
                 x = t(x)
@@ -485,6 +486,8 @@ class YOLOV3(nn.Module):
                     # only the best prior is used for each bounding box for each detector scale
                     # some of these get converted to ints when reading bboxes, which makes following op throw an error
                     # xc, yc, w, h
+
+                    bounding_box = bounding_box.type(torch.float32)
 
                     build_groundtruth(y_1, torch.clone(bounding_box), 0, 32)
                     build_groundtruth(y_2, torch.clone(bounding_box), 1, 16)
