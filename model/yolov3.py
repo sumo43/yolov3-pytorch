@@ -436,6 +436,19 @@ class YOLOV3(nn.Module):
         l_coord = 5
         l_noobj = 0.5
 
+        loss_cls = torch.nn.MSELoss(
+            size_average=None, reduce=None, reduction='mean')
+
+        """
+
+        loss_box = torch.nn.MSELoss(
+            size_average=None, reduce=None, reduction='mean')
+        """
+
+        loss_box = torch.Tensor(0)
+
+        loss_obj = torch.nn.MSELoss(
+            size_average=None, reduce=None, reduction='mean')
         for epoch in range(epochs):
 
             avg_loss = 0
@@ -497,9 +510,12 @@ class YOLOV3(nn.Module):
                     # some of these get converted to ints when reading bboxes, which makes following op throw an error
                     # xc, yc, w, h
 
-                    build_groundtruth(y_1, torch.clone(bounding_box), 0, 32)
-                    build_groundtruth(y_2, torch.clone(bounding_box), 1, 16)
-                    build_groundtruth(y_3, torch.clone(bounding_box), 2, 8)
+                    loss_box += build_groundtruth(y_1,
+                                                  torch.clone(bounding_box), 0, 32)
+                    loss_box += build_groundtruth(y_2,
+                                                  torch.clone(bounding_box), 1, 16)
+                    loss_box += build_groundtruth(y_3,
+                                                  torch.clone(bounding_box), 2, 8)
 
                 y_1 = y_1.view(1, -1, 85)
                 y_2 = y_2.view(1, -1, 85)
@@ -509,13 +525,10 @@ class YOLOV3(nn.Module):
 
                 optimizer.zero_grad()
                 # binary cross entropy loss for classes
-                loss = torch.nn.BCEWithLogitsLoss()(
+                loss = loss_cls(
                     y[0, :, 5:], y_pred[0, :, 5:])
-
-                return
-                loss = loss_fn(y_1.to(self.device), y_pred_1)
-                loss += loss_fn(y_2.to(self.device), y_pred_2)
-                loss += loss_fn(y_3.to(self.device), y_pred_3)
+                loss += loss_obj(y[0, :, 4], y_pred[0, :, 4])
+                loss += loss_box
 
                 loss.backward()
                 optimizer.step()
@@ -523,6 +536,8 @@ class YOLOV3(nn.Module):
                 avg_loss += loss.item() / batch_size
 
                 print(avg_loss)
+
+                return
 
                 # print(loss.item())
 
