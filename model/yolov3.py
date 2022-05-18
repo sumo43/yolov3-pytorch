@@ -480,7 +480,7 @@ class YOLOV3(nn.Module):
                 x = t(x)
 
                 # most important part. Everything else is irrelevant
-                y_pred = self(
+                y_out = self(
                     x.unsqueeze(0)
                 )
 
@@ -509,6 +509,8 @@ class YOLOV3(nn.Module):
                     # only the best prior is used for each bounding box for each detector scale
                     # some of these get converted to ints when reading bboxes, which makes following op throw an error
                     # xc, yc, w, h
+
+                    get_loss()
 
                     build_groundtruth(y_1,
                                       torch.clone(bounding_box), 0, 32)
