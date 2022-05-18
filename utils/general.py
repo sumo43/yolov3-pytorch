@@ -34,32 +34,27 @@ compare it with the corresponding detections matrix. Save + return the loss
 """
 
 
-def get_loss_iou(arr, bounding_box, scales_index, grid_size):
+def get_loss_iou(y, bounding_box, scales_index, grid_size):
     bounding_box = coco2yolo(bounding_box)
     # bounding boxes in terms of cells. Should all be 0-10. For x and y, c_x and c_y are their floor
     # grid_size is the size of each box in the grid
 
-    if bounding_box[0] >= arr.shape[2]:
-        bounding_box[0] = arr.shape[2] - 1
-    if bounding_box[1] >= arr.shape[3]:
-        bounding_box[1] = arr.shape[3] - 1
+    cell_x = torch.floor(bounding_box[0] / 32).type(torch.uint8)
+    cell_y = torch.floor(bounding_box[1] / 32).type(torch.uint8)
 
-    cell_x = torch.floor(bounding_box[0]).type(torch.uint8)
-    cell_y = torch.floor(bounding_box[1]).type(torch.uint8)
-
-    #print(f'grid_sizeL {grid_size} cell_x: {cell_x} cell_y: {cell_y}')
-
-    cl = bounding_box[4].type(torch.uint8)
-
-    #y_1[c_x][c_y][prior_num * 85]
+    print(f'cell_x {cell_x} cell_y {cell_y}')
 
     # find the prior that has the highest IoU with the bounding box
     # assume that the boxes are centered on top of each other
+
     best_iou = -1
     best_prior = priors[scales[0][0]]
 
     cell_x = int(cell_x)
     cell_y = int(cell_y)
+
+    loss = torch.autograd.Variable(torch.tensor(
+        0.), type=torch.FloatTensor, requires_grad=True)
 
     for i, prior_num in enumerate(scales[scales_index]):
 
@@ -81,12 +76,7 @@ def get_loss_iou(arr, bounding_box, scales_index, grid_size):
     h = bounding_box[3]
     _cls = bounding_box[4]
 
-    arr[:, best_prior_index, cell_x, cell_y, 0] = x * grid_size
-    arr[:, best_prior_index, cell_x, cell_y, 1] = y * grid_size
-    arr[:, best_prior_index, cell_x, cell_y, 2] = w * grid_size
-    arr[:, best_prior_index, cell_x, cell_y, 3] = h * grid_size
-    arr[:, best_prior_index, cell_x, cell_y, 4] = best_iou
-    arr[:, best_prior_index, cell_x, cell_y, 5 + _cls.type(torch.uint8)] = 1.
+    return loss
 
 
 def threshold(output: np.array, thres=0.95):

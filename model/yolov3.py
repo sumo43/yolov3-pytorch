@@ -7,7 +7,7 @@ import os
 
 from PIL import Image
 from torchvision import transforms
-from utils.general import non_max_suppression, build_groundtruth, coco2yolo
+from utils.general import non_max_suppression, get_loss_iou, coco2yolo
 from utils.params import label_map
 import cv2
 import math
@@ -484,7 +484,7 @@ class YOLOV3(nn.Module):
                     x.unsqueeze(0)
                 )
 
-                y_pred = torch.cat([y_pred[0], y_pred[1], y_pred[2]], dim=1)
+                y_pred = torch.cat([y_out[0], y_out[1], y_out[2]], dim=1)
 
                 grid_x = math.ceil(new_width / 32)
                 grid_y = math.ceil(new_height / 32)
@@ -510,14 +510,15 @@ class YOLOV3(nn.Module):
                     # some of these get converted to ints when reading bboxes, which makes following op throw an error
                     # xc, yc, w, h
 
-                    get_loss()
-
-                    build_groundtruth(y_1,
-                                      torch.clone(bounding_box), 0, 32)
+                    get_loss_iou(y_out[0].view((1, 3, math.ceil(width / 32), math.ceil(height / 32), 85)),
+                                 torch.clone(bounding_box), 0, 32)
+                    return
+                    """
                     build_groundtruth(y_2,
                                       torch.clone(bounding_box), 1, 16)
                     build_groundtruth(y_3,
                                       torch.clone(bounding_box), 2, 8)
+                    """
 
                 y_1 = y_1.view(1, -1, 85)
                 y_2 = y_2.view(1, -1, 85)
