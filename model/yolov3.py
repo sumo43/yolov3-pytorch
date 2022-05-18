@@ -510,12 +510,12 @@ class YOLOV3(nn.Module):
                     # some of these get converted to ints when reading bboxes, which makes following op throw an error
                     # xc, yc, w, h
 
-                    loss_box += build_groundtruth(y_1,
-                                                  torch.clone(bounding_box), 0, 32)
-                    loss_box += build_groundtruth(y_2,
-                                                  torch.clone(bounding_box), 1, 16)
-                    loss_box += build_groundtruth(y_3,
-                                                  torch.clone(bounding_box), 2, 8)
+                    build_groundtruth(y_1,
+                                      torch.clone(bounding_box), 0, 32)
+                    build_groundtruth(y_2,
+                                      torch.clone(bounding_box), 1, 16)
+                    build_groundtruth(y_3,
+                                      torch.clone(bounding_box), 2, 8)
 
                 y_1 = y_1.view(1, -1, 85)
                 y_2 = y_2.view(1, -1, 85)
@@ -528,14 +528,14 @@ class YOLOV3(nn.Module):
                 loss = loss_cls(
                     y[0, :, 5:], y_pred[0, :, 5:])
                 loss += loss_obj(y[0, :, 4], y_pred[0, :, 4])
-                loss += loss_box
+                #loss += loss_box
 
                 loss.backward()
                 optimizer.step()
 
-                avg_loss += loss.item() / batch_size
+                #avg_loss += loss.item() / batch_size
 
-                print(avg_loss)
+                print(loss)
 
                 return
 

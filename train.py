@@ -9,7 +9,7 @@ yolo = YOLOV3(cfg)
 #yolo.summary()
 
 # finetune on pretrained weights
-#yolo.load_weights('weights/yolov3.weights')
+yolo.load_weights('weights/yolov3.weights')
 
 # when you finetune, the model freezes the ResNet50 weights, and only trains the YOLO parts for faster training
 yolo.train('data/val2017', 'data/annotations', epochs=15, finetune=True)

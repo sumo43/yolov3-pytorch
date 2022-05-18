@@ -27,7 +27,7 @@ def coco2yolo(label):
 # input is (1, 3, n_out, n_grid, n_grid)
 
 
-def build_groundtruth(arr, bounding_box, scales_index, grid_size, y):
+def build_groundtruth(arr, bounding_box, scales_index, grid_size):
     bounding_box = coco2yolo(bounding_box)
     # bounding boxes in terms of cells. Should all be 0-10. For x and y, c_x and c_y are their floor
     # grid_size is the size of each box in the grid
