@@ -7,7 +7,7 @@ import os
 
 from PIL import Image
 from torchvision import transforms
-from utils.general import non_max_suppression, get_loss_iou, coco2yolo
+from utils.general import non_max_suppression, get_loss_iou, coco2yolo, get_loss_box
 from utils.params import label_map
 import cv2
 import math
@@ -439,13 +439,9 @@ class YOLOV3(nn.Module):
         loss_cls = torch.nn.MSELoss(
             size_average=None, reduce=None, reduction='mean')
 
-        """
-
         loss_box = torch.nn.MSELoss(
             size_average=None, reduce=None, reduction='mean')
-        """
-
-        loss_box = torch.Tensor(0)
+        loss = torch.autograd.Variable(torch.Tensor(0).type(torch.FloatTensor))
 
         loss_obj = torch.nn.MSELoss(
             size_average=None, reduce=None, reduction='mean')
@@ -510,8 +506,13 @@ class YOLOV3(nn.Module):
                     # some of these get converted to ints when reading bboxes, which makes following op throw an error
                     # xc, yc, w, h
 
+                    loss += loss_box()
+
+                    """
+
                     get_loss_iou(y_out[0].view((1, 3, math.ceil(width / 32), math.ceil(height / 32), 85)),
                                  torch.clone(bounding_box), 0, 32)
+                    """
                     return
                     """
                     build_groundtruth(y_2,
