@@ -239,42 +239,6 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
 
     return output
 
-# call_x, cell_y are the distance of the cell from the top right corner. Multiply by 32
-
-
-def get_gt(label: torch.Tensor, cell_x, cell_y, prior: tuple, scale=32) -> torch.Tensor:
-    gt = torch.zeros(5)
-
-    gt[1] = label[1]
-    gt[2] = label[2]
-    gt[3] = label[3]
-    gt[4] = label[4]
-
-    prior_w, prior_h = prior
-    prior_x = cell_x + (scale // 2)
-    prior_y = cell_y + (scale // 2)
-
-    gt[1] = inverse_sigmoid((gt[1] - cell_x) / 32)
-    gt[2] = inverse_sigmoid((gt[2] - cell_y) / 32)
-    gt[2] /= 32
-
-    gt[3] = gt[3] / prior_w
-    gt[3] /= 32
-    gt[4] = gt[4] / prior_h
-    gt[4] /= 32
-
-    gt[3] = torch.log(gt[3])
-    gt[4] = torch.log(gt[4])
-
-    # inverse sigmoid of the ioU score
-    _iou = iou(prior_w, prior_h, label[3], label[4])
-    if _iou == 0:
-        o = 0
-    else:
-        o = torch.log(_iou)
-    return torch.tensor((*gt, o))
-
-
 def to_cpu(tensor):
     return tensor.detach().cpu()
 
@@ -301,11 +265,6 @@ def compare_iou(bounding_box, prior):
 
 # objectness scores are fucked. figure out how they are implemented in darkent
 
-
-def inverse_sigmoid(x: torch.Tensor) -> torch.Tensor:
-    return torch.log(x / (1 - x))
-
-
 def intersection(box1, box2):
     x_left = max(box1[1], box2[1])
     y_left = max(box1[2], box2[2])
@@ -317,24 +276,6 @@ def intersection(box1, box2):
 # get the cell that the bounding box is in, and its offsets
 
 
-def get_cell_offsets(label: torch.Tensor) -> tuple:
-
-    center_x = label[1] + torch.div(label[3], 2, rounding_mode='trunc')
-    center_y = label[2] + torch.div(label[4], 2, rounding_mode='trunc')
-    cell_x = torch.div(center_x, 32, rounding_mode='trunc')
-    cell_y = torch.div(center_y, 32, rounding_mode='trunc')
-    c_x = center_x - (cell_x * 32)
-    c_y = center_y - (cell_y * 32)
-
-    return c_x, c_y, cell_x, cell_y
-
-
-def get_best_prior(label: torch.Tensor) -> torch.Tensor:
-    w, h = label[2], label[3]
-    for prior in priors:
-        pass
-
-    return NotImplemented
 
 
 def _readline(f):

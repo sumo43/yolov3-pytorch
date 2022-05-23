@@ -162,7 +162,6 @@ class YOLOV3(nn.Module):
                 if layer['activation'] == 'leaky':
                     relu_layer = nn.LeakyReLU(0.1)
                     curr_layer.append(relu_layer)
-                    no_bias = False
 
                 elif layer['activation'] == 'relu':
                     relu_layer = nn.ReLU()
@@ -281,8 +280,7 @@ class YOLOV3(nn.Module):
                     # running variance
                     bn.running_var.data = torch.from_numpy(weights[ptr:ptr+bs])
                     ptr += bs
-                    # sd[param_num_batches_tracked] =  torch.from_numpy(weights[ptr:ptr+bs])
-                    # ptr += bs
+                 
                 else:
                     bs = conv.bias.data.shape.numel()
                     conv.bias.data = torch.from_numpy(
@@ -409,7 +407,7 @@ class YOLOV3(nn.Module):
 
             return x
 
-    def train_model(self, train_folder, annotations_folder, valid_ds_location=None, epochs=15, finetune=True, num_iterations=10):
+    def _train(self, train_folder, annotations_folder, valid_ds_location=None, epochs=15, finetune=True, num_iterations=10):
         # we use small dataset for now
         num_train_images = 100
         # num_val_images = 100
