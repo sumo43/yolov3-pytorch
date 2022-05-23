@@ -7,7 +7,7 @@ import os
 
 from PIL import Image
 from torchvision import transforms
-from utils.general import non_max_suppression, get_loss_iou, coco2yolo, get_loss_box
+from utils.general import non_max_suppression, coco2yolo, get_loss_box, build_groundtruth
 from utils.params import label_map
 import cv2
 import math
@@ -29,6 +29,16 @@ VAL_ANNOTATIONS_PATH = os.path.join(BASE_PATH, 'instances_train2017.json')
 
 
 def generate_conv(layer: dict, in_channels, bias=False):
+    """generate a conv layer for yolo. As a rule, layers after yolo heads don't have bias, then it's set to True
+
+    Args:
+        layer (dict): dict info about layer from cfg
+        in_channels (_type_): _description_.
+        bias (bool, optional): _description_. Defaults to False.
+
+    Returns:
+        _type_: _description_
+    """
     filters = layer['filters']
     stride = layer['stride']
     pad = layer['pad']
@@ -43,7 +53,6 @@ def generate_conv(layer: dict, in_channels, bias=False):
 
 class YoloHead(nn.Module):
     def __init__(self, head_cfg: dict):
-
         super(YoloHead, self).__init__()
 
         self.anchors = [head_cfg['anchors'][i] for i in head_cfg['mask']]
@@ -54,7 +63,6 @@ class YoloHead(nn.Module):
 
     # some code borrowed from https://github.com/eriklindernoren/PyTorch-YOLOv3
     def forward(self, x, img_shape=(416, 416)):
-
         stride = img_shape[0] // x.shape[2]
         self.stride = stride
         bs, _, ny, nx = x.shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
@@ -62,6 +70,7 @@ class YoloHead(nn.Module):
                    nx).permute(0, 1, 3, 4, 2).contiguous()
 
         anchor_mask = torch.ones((1, 3, ny, nx, 2))
+
         for i in range(3):
             anchor_mask[:, i, :, :, 0] = self.anchors[i][0]
             anchor_mask[:, i, :, :, 1] = self.anchors[i][1]
@@ -80,7 +89,7 @@ class YoloHead(nn.Module):
             [torch.arange(ny), torch.arange(nx)], indexing='ij')
         return torch.stack((xv, yv), 2).view((1, 1, ny, nx, 2)).float()
 
-
+# dummy layers, these transformers are performed in yolo.detect
 class YoloRoute(nn.Module):
     def __init__(self):
         super(YoloRoute, self).__init__()
@@ -114,6 +123,7 @@ class YOLOV3(nn.Module):
         batch_size, subdivs, width, height, channels = int(params['batch']), int(
             params['subdivisions']), int(params['width']), int(params['height']), int(params['channels'])
         momentum, decay = float(params['momentum']), float(params['decay'])
+
         cfg_layers = cfg['layers']
         self.yolo_layers = []
 
@@ -161,19 +171,16 @@ class YOLOV3(nn.Module):
                 curr_layer = nn.Sequential(*curr_layer)
                 layers.append(curr_layer)
                 i += 1
-                l += 1
 
             elif layer['name'] == 'yolo':
                 layers.append(YoloHead(layer))
                 self.yolo_layers.append(i - 1)
                 i += 1
-                l += 1
 
             elif layer['name'] == 'upsample':
                 upsample_layer = torch.nn.Upsample(scale_factor=2)
                 layers.append(upsample_layer)
                 i += 1
-                l += 1
 
             elif layer['name'] == 'shortcut':
                 _from = int(layer['from'])
@@ -402,7 +409,7 @@ class YOLOV3(nn.Module):
 
             return x
 
-    def train(self, train_folder, annotations_folder, valid_ds_location=None, epochs=15, finetune=True):
+    def train_model(self, train_folder, annotations_folder, valid_ds_location=None, epochs=15, finetune=True, num_iterations=10):
         # we use small dataset for now
         num_train_images = 100
         # num_val_images = 100
@@ -424,11 +431,12 @@ class YOLOV3(nn.Module):
 
         # val_dl = torch.utils.data.DataLoader(
         #    val_ds, batch_size=1, shuffle=True)
-        self.train_model(loss_fn, optimizer, 10, train_dl, 100)
+        self.train_model(loss_fn, optimizer, 10, train_dl,
+                         num_iterations=num_iterations)
 
         return
 
-    def train_model(self, loss_fn, optimizer, epochs, train_dl, valid_dl=None, num_iterations=None):
+    def train_model(self, loss_fn, optimizer, epochs, train_dl, valid_dl=None, num_iterations=10):
 
         batch_size = train_dl.batch_size
 
@@ -441,7 +449,6 @@ class YOLOV3(nn.Module):
 
         loss_box = torch.nn.MSELoss(
             size_average=None, reduce=None, reduction='mean')
-        loss = torch.autograd.Variable(torch.Tensor(0).type(torch.FloatTensor))
 
         loss_obj = torch.nn.MSELoss(
             size_average=None, reduce=None, reduction='mean')
@@ -454,6 +461,9 @@ class YOLOV3(nn.Module):
             batch_num = 0
 
             for batch in tqdm(train_dl):
+
+                loss = torch.autograd.Variable(torch.tensor(
+                    0.), requires_grad=True)
 
                 x, bboxes = batch
                 # DATA TRANSFORMS AND PROCESSING
@@ -491,14 +501,16 @@ class YOLOV3(nn.Module):
                 y_2 = torch.zeros((1, 3, grid_x * 2, grid_y * 2, 85))
                 y_3 = torch.zeros((1, 3, grid_x * 4, grid_y * 4, 85))
 
+                optimizer.zero_grad()
+
                 for bounding_box in bboxes:
 
                     bounding_box = coco2yolo(bounding_box)
 
-                    bounding_box[0] *= rescale_factor_w
-                    bounding_box[1] *= rescale_factor_h
-                    bounding_box[2] *= rescale_factor_w
-                    bounding_box[3] *= rescale_factor_h
+                    bounding_box[0] = bounding_box[0] * rescale_factor_w
+                    bounding_box[1] = bounding_box[1] * rescale_factor_w
+                    bounding_box[2] = bounding_box[2] * rescale_factor_w
+                    bounding_box[3] = bounding_box[3] * rescale_factor_w
                     bounding_box = bounding_box.type(torch.float32)
 
                     # scale 1
@@ -506,20 +518,21 @@ class YOLOV3(nn.Module):
                     # some of these get converted to ints when reading bboxes, which makes following op throw an error
                     # xc, yc, w, h
 
-                    loss += loss_box()
+                    loss = loss + get_loss_box(y_out[0].view((1, 3, math.ceil(new_width / 32), math.ceil(new_height / 32), 85)),
+                                               torch.clone(bounding_box), 0, 32)
 
-                    """
+                    loss = loss + get_loss_box(y_out[1].view((1, 3, math.ceil(new_width / 16), math.ceil(new_height / 16), 85)),
+                                               torch.clone(bounding_box), 1, 16)
 
-                    get_loss_iou(y_out[0].view((1, 3, math.ceil(width / 32), math.ceil(height / 32), 85)),
-                                 torch.clone(bounding_box), 0, 32)
-                    """
-                    return
-                    """
+                    loss = loss + get_loss_box(y_out[2].view((1, 3, math.ceil(new_width / 8), math.ceil(new_height / 8), 85)),
+                                               torch.clone(bounding_box), 2, 8)
+
+                    build_groundtruth(y_1,
+                                      torch.clone(bounding_box), 0, 32)
                     build_groundtruth(y_2,
                                       torch.clone(bounding_box), 1, 16)
                     build_groundtruth(y_3,
                                       torch.clone(bounding_box), 2, 8)
-                    """
 
                 y_1 = y_1.view(1, -1, 85)
                 y_2 = y_2.view(1, -1, 85)
@@ -527,22 +540,16 @@ class YOLOV3(nn.Module):
 
                 y = torch.cat([y_1, y_2, y_3], 1)
 
-                optimizer.zero_grad()
-                # binary cross entropy loss for classes
-                loss = loss_cls(
+                loss = loss + loss_cls(
                     y[0, :, 5:], y_pred[0, :, 5:])
-                loss += loss_obj(y[0, :, 4], y_pred[0, :, 4])
-                #loss += loss_box
+                loss = loss + loss_obj(y[0, :, 4], y_pred[0, :, 4])
+
+                print(loss)
 
                 loss.backward()
                 optimizer.step()
 
-                #avg_loss += loss.item() / batch_size
-
-                print(loss)
-
-                return
-
+                # avg_loss += loss.item() / batch_size
                 # print(loss.item())
 
                 batch_num += 1

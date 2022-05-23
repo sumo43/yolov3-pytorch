@@ -39,11 +39,16 @@ compare it with the corresponding detections matrix. Save + return the loss
 # is handled by loss_obj
 def get_loss_box(y, bounding_box, scales_index, grid_size):
 
+    bounding_box /= grid_size
+
     loss = torch.autograd.Variable(torch.tensor(
         0.), requires_grad=True)
 
     loss_xy = torch.nn.MSELoss(
         size_average=None, reduce=None, reduction='mean')
+
+    best_iou = 0
+    best_prior = priors[scales[scales_index][0]]
 
     # get the best best prior match, based on IoU
     for i, prior_num in enumerate(scales[scales_index]):
@@ -59,16 +64,77 @@ def get_loss_box(y, bounding_box, scales_index, grid_size):
 
     # index into the output at this prior and x, y grid cells
 
-    cell_x = torch.floor(bounding_box[0] / 32).type(torch.uint8)
-    cell_y = torch.floor(bounding_box[1] / 32).type(torch.uint8)
+    cell_x = int(math.floor(bounding_box[0]))
+    cell_y = int(math.floor(bounding_box[1]))
 
-    print(f'cell_x {cell_x} cell_y {cell_y}')
+    #print(f'cell_x {cell_x} cell_y {cell_y}')
 
-    loss += compare_iou(y[:, best_prior_index, cell_x, cell_y, 2:4])
-    loss += loss_xy(y[:, best_prior_index, cell_,
-                    cell_y, :2], bounding_box[:2])
+    loss = loss + (1 - compare_iou(y[0, best_prior_index, cell_x,
+                                     cell_y, :4] / grid_size, bounding_box[2:4]))
+
+    # loss = loss + loss_xy(y[0, best_prior_index, cell_x,
+    #                        cell_y, :2], bounding_box[:2])
+    # completely arbitrary scaling
 
     return loss
+
+# todo remove redundant code
+
+
+def build_groundtruth(arr, bounding_box, scales_index, grid_size):
+    bounding_box = coco2yolo(bounding_box)
+    # bounding boxes in terms of cells. Should all be 0-10. For x and y, c_x and c_y are their floor
+    # grid_size is the size of each box in the grid
+
+    bounding_box[0] /= grid_size
+    bounding_box[1] /= grid_size
+    bounding_box[2] /= grid_size
+    bounding_box[3] /= grid_size
+
+    if bounding_box[0] >= arr.shape[2]:
+        bounding_box[0] = arr.shape[2] - 1
+    if bounding_box[1] >= arr.shape[3]:
+        bounding_box[1] = arr.shape[3] - 1
+
+    cell_x = torch.floor(bounding_box[0]).type(torch.uint8)
+    cell_y = torch.floor(bounding_box[1]).type(torch.uint8)
+
+    #print(f'grid_sizeL {grid_size} cell_x: {cell_x} cell_y: {cell_y}')
+
+    cl = bounding_box[4].type(torch.uint8)
+
+    #y_1[c_x][c_y][prior_num * 85]
+
+    # find the prior that has the highest IoU with the bounding box
+    # assume that the boxes are centered on top of each other
+    best_iou = -1
+    best_prior = priors[scales[0][0]]
+
+    cell_x = int(cell_x)
+    cell_y = int(cell_y)
+
+    for i, prior_num in enumerate(scales[scales_index]):
+
+        prior = priors[prior_num][0] / \
+            grid_size, priors[prior_num][1] / grid_size
+
+        prior_w, prior_h = prior
+
+        iou = compare_iou(bounding_box, prior)
+
+        if(iou > best_iou):
+            best_iou = iou
+            best_prior = prior
+            best_prior_index = i
+
+    x = bounding_box[0]
+    y = bounding_box[1]
+    w = bounding_box[2]
+    h = bounding_box[3]
+    _cls = bounding_box[4]
+
+    arr[:, best_prior_index, cell_x, cell_y, 4] = best_iou
+    arr[:, best_prior_index, cell_x, cell_y, 5 + _cls.type(torch.uint8)] = 1.
 
 
 def threshold(output: np.array, thres=0.95):
