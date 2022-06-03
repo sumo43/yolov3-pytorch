@@ -129,7 +129,9 @@ dmypy.json
 .pyre/
 
 data/*
-weights/*
+weights/yolov3.weights
 *.swp
 
 */__pycache__
+
+
