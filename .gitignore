@@ -129,6 +129,8 @@ dmypy.json
 .pyre/
 
 data/*
+!data/.gitkeep
+!data/download_coco.sh
 weights/yolov3.weights
 *.swp
 
