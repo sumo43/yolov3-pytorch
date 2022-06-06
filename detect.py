@@ -10,3 +10,6 @@ yolo.summary()
 yolo.load_weights('weights/yolov3.weights')
 
 dets = yolo.detect(im_to_detect, preview=False, save_img=True)
+
+yolo.freeze()
+yolo.unfreeze()

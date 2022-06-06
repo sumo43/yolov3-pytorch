@@ -114,6 +114,34 @@ class YOLOV3(nn.Module):
 
         self.device = torch.device(
             "cuda:0" if torch.cuda.is_available() else "cpu")
+    
+    def freeze(self):
+        # -74
+
+        for layer in self.layers[:75]: 
+            if type(layer) == torch.nn.Sequential:
+                for i in layer:
+                    for param in i.parameters():
+                        param.requires_grad = False
+            else:
+                for param in layer.parameters():
+                    param.requires_grad = False
+    
+     
+    def unfreeze(self):
+        # -74
+
+        for layer in self.layers[:75]: 
+            if type(layer) == torch.nn.Sequential:
+                for i in layer:
+                    for param in i.parameters():
+                        param.requires_grad = True
+            else:
+                for param in layer.parameters():
+                    param.requires_grad = True
+
+
+
 
     def read_config(self, cfg):
         # get model metaparameters from cfg
@@ -562,3 +590,6 @@ class YOLOV3(nn.Module):
 
             print(
                 f'epoch: {epoch} loss: {avg_loss} acc: {acc} val_loss: {val_avg_loss} val_acc: {val_acc}')
+    
+       
+            

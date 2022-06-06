@@ -1,4 +1,3 @@
-from pyrsistent import b
 import torch
 import torch.nn as nn
 import numpy as np
@@ -26,13 +25,11 @@ def coco2yolo(label):
 
 # input is (1, 3, n_out, n_grid, n_grid)
 
-
 """
 arr: y 1, 3, n_out, n_grid...
 bounding_box:  select the best prior by iou, 
 compare it with the corresponding detections matrix. Save + return the loss
 """
-
 
 # given a bounding box and y, calculate the loss for the best prior ("only one prior is assigned for each GT object")
 # the case where yolo wrongly outputs arbitrarily many bounding boxes
