@@ -453,7 +453,7 @@ class YOLOV3(nn.Module):
         def collate_fn(x): return ([_x[0] for _x in x], [[torch.tensor(
             (*ann['bbox'], ann['category_id'])) for ann in _x[1]] for _x in x])
         train_dl = torch.utils.data.DataLoader(
-            train_ds, batch_size=1, shuffle=True, collate_fn=collate_fn)
+            train_ds, batch_size=32, shuffle=True, collate_fn=collate_fn)
 
         # val_dl = torch.utils.data.DataLoader(
         #    val_ds, batch_size=1, shuffle=True)
@@ -580,12 +580,12 @@ class YOLOV3(nn.Module):
 
                 batch_num += 1
                 if batch_num > num_iterations:
-                    break
+                    return
 
             avg_loss /= (len(train_dl) * batch_size)
             # acc /= (len(train_dl) * batch_size)
 
-            val_avg_loss /= (len(valid_dl) * batch_size)
+            # val_avg_loss /= (len(valid_dl) * batch_size)
             # val_acc /= (len(valid_dl) * batch_size)
 
             print(
