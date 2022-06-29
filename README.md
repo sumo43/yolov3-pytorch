@@ -25,13 +25,6 @@ output:
 
 ![street_detections.jpg](detections/street_detections.jpg?raw=true)
 
-### TODO
-
--   [x] Implement weight loading from yolo cfg files
--   [x] Implement detections
--   [ ] Finish loss and backprop
--   [ ] Test out training
-
 ### YOLOV3
 
 [Link to Author](https://pjreddie.com/darknet/yolo/)
